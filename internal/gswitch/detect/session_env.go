@@ -51,17 +51,18 @@ var displayManagerUsers = map[string]bool{
 
 // SessionEnv contains environment variables and credentials for an active user session.
 type SessionEnv struct {
-	UID           uint32 // User ID
-	GID           uint32 // Group ID
-	User          string // Username
-	Home          string // Home directory
-	Display       string // X11 DISPLAY (may be empty for pure Wayland)
-	XAuthority    string // X11 XAUTHORITY file path
-	DBusAddress   string // D-Bus session bus address
-	RuntimeDir    string // XDG_RUNTIME_DIR
-	SessionType   string // "x11" or "wayland"
-	XDGConfigHome string // XDG_CONFIG_HOME for non-standard config paths
-	IBusAddress   string // IBUS_ADDRESS for checking ibus activity without pgrep
+	UID            uint32 // User ID
+	GID            uint32 // Group ID
+	User           string // Username
+	Home           string // Home directory
+	Display        string // X11 DISPLAY (may be empty for pure Wayland)
+	XAuthority     string // X11 XAUTHORITY file path
+	DBusAddress    string // D-Bus session bus address
+	RuntimeDir     string // XDG_RUNTIME_DIR
+	SessionType    string // "x11" or "wayland"
+	WaylandDisplay string // WAYLAND_DISPLAY socket name (e.g. "wayland-0")
+	XDGConfigHome  string // XDG_CONFIG_HOME for non-standard config paths
+	IBusAddress    string // IBUS_ADDRESS for checking ibus activity without pgrep
 
 	// Desktop environment detection (Task 07)
 	XDGCurrentDesktop string // "ubuntu:GNOME", "GNOME", "KDE", etc.
@@ -393,8 +394,11 @@ func fillSessionEnvFromProcess(env *SessionEnv, leaderPID string) {
 			env.XAuthority = v
 		}
 	}
-	if v := procEnv["WAYLAND_DISPLAY"]; v != "" && env.SessionType == "" {
-		env.SessionType = "wayland"
+	if v := procEnv["WAYLAND_DISPLAY"]; v != "" {
+		env.WaylandDisplay = v
+		if env.SessionType == "" {
+			env.SessionType = "wayland"
+		}
 	}
 	if v := procEnv["XDG_CONFIG_HOME"]; v != "" {
 		env.XDGConfigHome = v
@@ -433,6 +437,27 @@ func applyFallbacks(env *SessionEnv, session *sessionInfo) {
 	if env.XAuthority == "" {
 		env.XAuthority = findXAuthorityForSession(env)
 	}
+
+	// WAYLAND_DISPLAY fallback: scan runtime dir for a wayland socket
+	if env.WaylandDisplay == "" && env.SessionType == "wayland" && env.RuntimeDir != "" {
+		env.WaylandDisplay = findWaylandDisplay(env.RuntimeDir)
+	}
+}
+
+// findWaylandDisplay finds the wayland socket name in the runtime dir.
+func findWaylandDisplay(runtimeDir string) string {
+	// Standard name first
+	if isSocket(filepath.Join(runtimeDir, "wayland-0")) {
+		return "wayland-0"
+	}
+	matches, _ := filepath.Glob(filepath.Join(runtimeDir, "wayland-*"))
+	for _, m := range matches {
+		if strings.HasSuffix(m, ".lock") || !isSocket(m) {
+			continue
+		}
+		return filepath.Base(m)
+	}
+	return ""
 }
 
 // findX11DisplayForSession finds DISPLAY for a session.
@@ -554,6 +579,12 @@ func buildEnvOverrides(env *SessionEnv) map[string]string {
 	if env.XAuthority != "" {
 		overrides["XAUTHORITY"] = env.XAuthority
 	}
+	if env.WaylandDisplay != "" {
+		overrides["WAYLAND_DISPLAY"] = env.WaylandDisplay
+	}
+	if env.SessionType != "" {
+		overrides["XDG_SESSION_TYPE"] = env.SessionType
+	}
 	// XDG_CONFIG_HOME - only if non-empty and absolute path
 	if env.XDGConfigHome != "" && filepath.IsAbs(env.XDGConfigHome) {
 		overrides["XDG_CONFIG_HOME"] = env.XDGConfigHome
@@ -648,6 +679,21 @@ func ApplySessionEnv(env *SessionEnv) error {
 	}
 	if env.RuntimeDir != "" {
 		if err := os.Setenv("XDG_RUNTIME_DIR", env.RuntimeDir); err != nil {
+			return err
+		}
+	}
+	if env.WaylandDisplay != "" {
+		if err := os.Setenv("WAYLAND_DISPLAY", env.WaylandDisplay); err != nil {
+			return err
+		}
+	}
+	if env.SessionType != "" {
+		if err := os.Setenv("XDG_SESSION_TYPE", env.SessionType); err != nil {
+			return err
+		}
+	}
+	if env.Home != "" {
+		if err := os.Setenv("HOME", env.Home); err != nil {
 			return err
 		}
 	}

@@ -214,7 +214,6 @@ nfpms:
         dependencies:
           - systemd
           - libgtk-3-0
-          - "libayatana-appindicator3-1 | libappindicator3-1"
         recommends:
           - libgtk-3-bin
           - desktop-file-utils
@@ -223,7 +222,6 @@ nfpms:
         dependencies:
           - systemd
           - gtk3
-          - libappindicator-gtk3
         recommends:
           - desktop-file-utils
           - wl-clipboard

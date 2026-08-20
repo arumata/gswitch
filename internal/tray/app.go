@@ -9,7 +9,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 )

@@ -1604,3 +1604,77 @@ func TestDetectLayoutSwitchKeys_KDENotInDefaultProviders(t *testing.T) {
 		}
 	}
 }
+
+func TestParseKxkbrcXKBOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			name:    "caps toggle",
+			content: "[Layout]\nLayoutList=us,ru\nOptions=grp:caps_toggle\n",
+			want:    []string{"grp:caps_toggle"},
+		},
+		{
+			name:    "multiple options",
+			content: "[Layout]\nOptions=grp:alt_shift_toggle,terminate:ctrl_alt_bksp\n",
+			want:    []string{"grp:alt_shift_toggle", "terminate:ctrl_alt_bksp"},
+		},
+		{
+			name:    "options outside layout section ignored",
+			content: "[Other]\nOptions=grp:win_space_toggle\n",
+			want:    nil,
+		},
+		{
+			name:    "no options key",
+			content: "[Layout]\nLayoutList=us,ru\n",
+			want:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseKxkbrcXKBOptions(tt.content)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseKxkbrcXKBOptions() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("option[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGnomeProviderSkipsNonGNOMESession(t *testing.T) {
+	env := &SessionEnv{XDGCurrentDesktop: "KDE"}
+	p := &gnomeProvider{}
+
+	attempt := p.Detect(env)
+	if attempt.Status != StatusInactive {
+		t.Errorf("Detect() status = %v, want StatusInactive on non-GNOME session", attempt.Status)
+	}
+}
+
+func TestFindWaylandDisplayFallback(t *testing.T) {
+	// No sockets in an empty dir
+	if got := findWaylandDisplay(t.TempDir()); got != "" {
+		t.Errorf("findWaylandDisplay(empty) = %q, want empty", got)
+	}
+}
+
+func TestBuildEnvOverridesWayland(t *testing.T) {
+	env := &SessionEnv{
+		SessionType:    "wayland",
+		WaylandDisplay: "wayland-1",
+	}
+	overrides := buildEnvOverrides(env)
+	if overrides["WAYLAND_DISPLAY"] != "wayland-1" {
+		t.Errorf("WAYLAND_DISPLAY = %q, want wayland-1", overrides["WAYLAND_DISPLAY"])
+	}
+	if overrides["XDG_SESSION_TYPE"] != "wayland" {
+		t.Errorf("XDG_SESSION_TYPE = %q, want wayland", overrides["XDG_SESSION_TYPE"])
+	}
+}

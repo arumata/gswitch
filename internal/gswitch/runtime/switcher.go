@@ -117,28 +117,35 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 		}
 	}()
 
-	// For auto-detection mode, prepare session environment first
-	if config.LayoutSwitchAuto && len(config.LayoutSwitchKey) == 0 {
-		env, err := getActiveSessionEnv()
-		switch {
-		case errors.Is(err, ErrNoActiveSession):
+	// Prepare session environment. Clipboard and layout detection need it in
+	// every mode; auto-detection mode additionally waits for a session.
+	autoDetect := config.LayoutSwitchAuto && len(config.LayoutSwitchKey) == 0
+	env, err := getActiveSessionEnv()
+	switch {
+	case errors.Is(err, ErrNoActiveSession):
+		if autoDetect {
 			// Wait for session to appear (e.g., systemd started before user login)
 			env, err = s.waitForSession(s.ctx)
 			if err != nil {
 				return nil, fmt.Errorf("failed while waiting for session: %w", err)
 			}
-		case errors.Is(err, ErrNoSystemd):
-			// Non-systemd: best-effort with current environment
-			s.log("Warning: %v, continuing with current environment", err)
-		case err != nil:
+		} else {
+			s.log("Warning: no active graphical session, clipboard may be unavailable")
+		}
+	case errors.Is(err, ErrNoSystemd):
+		// Non-systemd: best-effort with current environment
+		s.log("Warning: %v, continuing with current environment", err)
+	case err != nil:
+		if autoDetect {
 			return nil, fmt.Errorf("failed to get session env: %w", err)
 		}
+		s.log("Warning: failed to get session env: %v", err)
+	}
 
-		// Apply session environment before X11 setup
-		if env != nil {
-			if err := ApplySessionEnv(env); err != nil {
-				s.log("Warning: failed to apply session env: %v", err)
-			}
+	// Apply session environment before X11/Wayland setup
+	if env != nil {
+		if err := ApplySessionEnv(env); err != nil {
+			s.log("Warning: failed to apply session env: %v", err)
 		}
 	}
 
@@ -146,7 +153,7 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 	setupX11Environment()
 
 	// Perform auto-detection of layout switch keys if configured
-	if config.LayoutSwitchAuto && len(config.LayoutSwitchKey) == 0 {
+	if autoDetect {
 		result, detectErr := DetectLayoutSwitchKeys(nil)
 		scancodes, degraded, err := applyAutoDetectResult(result, detectErr)
 

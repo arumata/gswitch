@@ -121,8 +121,87 @@ func GetCurrentLayouts() ([]LayoutSpec, error) {
 		return layouts, nil
 	}
 
+	// Try KDE kxkbrc (works on both X11 and Wayland)
+	if layouts, err := getLayoutsFromKxkbrc(); err == nil && len(layouts) >= 2 {
+		return layouts, nil
+	}
+
 	// Fallback to setxkbmap
 	return getLayoutsFromXkb()
+}
+
+// getLayoutsFromKxkbrc reads keyboard layouts from KDE's kxkbrc config.
+func getLayoutsFromKxkbrc() ([]LayoutSpec, error) {
+	home := getRealUserHome()
+	if home == "" {
+		return nil, errors.New("cannot determine user home directory")
+	}
+
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" || !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(home, ".config")
+	}
+
+	data, err := os.ReadFile(filepath.Join(configHome, "kxkbrc"))
+	if err != nil {
+		return nil, err
+	}
+
+	layouts := parseKxkbrcLayouts(string(data))
+	if len(layouts) == 0 {
+		return nil, errors.New("no layouts found in kxkbrc")
+	}
+	return layouts, nil
+}
+
+// parseKxkbrcLayouts parses the [Layout] section of kxkbrc content:
+//
+//	[Layout]
+//	LayoutList=us,ru
+//	VariantList=,phonetic
+func parseKxkbrcLayouts(content string) []LayoutSpec {
+	var names, variants []string
+	inLayout := false
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			inLayout = line == "[Layout]"
+			continue
+		}
+		if !inLayout {
+			continue
+		}
+		if after, ok := strings.CutPrefix(line, "LayoutList="); ok {
+			names = splitKxkbrcList(after)
+		}
+		if after, ok := strings.CutPrefix(line, "VariantList="); ok {
+			variants = splitKxkbrcList(after)
+		}
+	}
+
+	layouts := make([]LayoutSpec, 0, len(names))
+	for i, name := range names {
+		if name == "" {
+			continue
+		}
+		spec := LayoutSpec{Name: name}
+		if i < len(variants) {
+			spec.Variant = variants[i]
+		}
+		if !containsLayoutSpec(layouts, spec) {
+			layouts = append(layouts, spec)
+		}
+	}
+	return layouts
+}
+
+// splitKxkbrcList splits a comma-separated kxkbrc list, trimming spaces.
+func splitKxkbrcList(s string) []string {
+	parts := strings.Split(s, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
 }
 
 func getLayoutsFromFcitx5() ([]LayoutSpec, error) {

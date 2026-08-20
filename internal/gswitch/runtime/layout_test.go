@@ -179,3 +179,46 @@ func TestGetLayoutsFromFcitx5_ParsesVariantLine(t *testing.T) {
 		t.Fatalf("fcitx parse = %+v, want %+v", specs, want)
 	}
 }
+
+func TestParseKxkbrcLayouts(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []LayoutSpec
+	}{
+		{
+			name:    "plain two layouts",
+			content: "[Layout]\nDisplayNames=,\nLayoutList=us,ru\nOptions=grp:caps_toggle\n",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "ru"}},
+		},
+		{
+			name:    "with variants",
+			content: "[Layout]\nLayoutList=us,ru\nVariantList=,phonetic\n",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "ru", Variant: "phonetic"}},
+		},
+		{
+			name:    "layout keys outside section ignored",
+			content: "[Other]\nLayoutList=de,fr\n[Layout]\nLayoutList=us,ru\n",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "ru"}},
+		},
+		{
+			name:    "no layout section",
+			content: "[Other]\nLayoutList=de,fr\n",
+			want:    []LayoutSpec{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseKxkbrcLayouts(tt.content)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseKxkbrcLayouts() = %+v, want %+v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("layout[%d] = %+v, want %+v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

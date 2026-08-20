@@ -21,24 +21,23 @@ type Clipboard struct {
 func NewClipboard() (*Clipboard, error) {
 	cb := &Clipboard{}
 
-	// Check if running on pure Wayland (without XWayland)
-	// Pure Wayland: WAYLAND_DISPLAY is set but DISPLAY is not
-	// Also check XDG_SESSION_TYPE for additional confirmation
-	isPureWayland := os.Getenv("WAYLAND_DISPLAY") != "" && os.Getenv("DISPLAY") == ""
-	if !isPureWayland && os.Getenv("XDG_SESSION_TYPE") == "wayland" && os.Getenv("DISPLAY") == "" {
-		isPureWayland = true
-	}
+	// In a Wayland session prefer wl-clipboard: it talks to the compositor
+	// directly and sees selections of both native and XWayland clients.
+	// The X11 path via XWayland only sees what the compositor bridges.
+	isWayland := os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("XDG_SESSION_TYPE") == "wayland"
 
-	if isPureWayland {
-		// Pure Wayland - need wl-clipboard
-		if _, err := exec.LookPath("wl-copy"); err != nil {
-			return nil, errors.New("wayland detected but wl-copy not found (install wl-clipboard)")
+	if isWayland {
+		_, errCopy := exec.LookPath("wl-copy")
+		_, errPaste := exec.LookPath("wl-paste")
+		if errCopy == nil && errPaste == nil {
+			cb.useWayland = true
+			return cb, nil
 		}
-		if _, err := exec.LookPath("wl-paste"); err != nil {
-			return nil, errors.New("wayland detected but wl-paste not found (install wl-clipboard)")
+		// No wl-clipboard: fall back to X11 via XWayland if DISPLAY is
+		// available, otherwise there is nothing to work with.
+		if os.Getenv("DISPLAY") == "" {
+			return nil, errors.New("wayland session but wl-copy/wl-paste not found (install wl-clipboard)")
 		}
-		cb.useWayland = true
-		return cb, nil
 	}
 
 	// X11 or XWayland

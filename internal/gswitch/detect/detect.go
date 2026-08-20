@@ -873,7 +873,13 @@ func (p *xkbProvider) getXKBOptionsWithEnv(env *SessionEnv) ([]string, error) {
 		return opts, nil
 	}
 
-	// 3. Fallback to gsettings (GNOME) - use RunGsettings for proper user context
+	// 3. KDE stores XKB options in kxkbrc (works on both X11 and Wayland,
+	// where setxkbmap and X11 properties are unavailable)
+	if opts, err := getXKBOptionsFromKxkbrc(env); err == nil && len(opts) > 0 {
+		return opts, nil
+	}
+
+	// 4. Fallback to gsettings (GNOME) - use RunGsettings for proper user context
 	if _, err := exec.LookPath("gsettings"); err == nil {
 		if opts, err := p.getXKBOptionsFromGsettingsWithEnv(env); err == nil && len(opts) > 0 {
 			return opts, nil
@@ -887,6 +893,42 @@ func (p *xkbProvider) getXKBOptionsWithEnv(env *SessionEnv) ([]string, error) {
 
 	// No options found - return empty slice (not an error)
 	return []string{}, nil
+}
+
+// getXKBOptionsFromKxkbrc reads XKB options from KDE's kxkbrc config.
+func getXKBOptionsFromKxkbrc(env *SessionEnv) ([]string, error) {
+	configDir := resolveConfigDir(env)
+	if configDir == "" {
+		return nil, errors.New("cannot determine config directory")
+	}
+
+	data, err := os.ReadFile(filepath.Join(configDir, "kxkbrc")) //nolint:gosec // path built from session config dir
+	if err != nil {
+		return nil, err
+	}
+	return parseKxkbrcXKBOptions(string(data)), nil
+}
+
+// parseKxkbrcXKBOptions parses the Options key of the [Layout] section:
+//
+//	[Layout]
+//	Options=grp:caps_toggle,terminate:ctrl_alt_bksp
+func parseKxkbrcXKBOptions(content string) []string {
+	inLayout := false
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			inLayout = line == "[Layout]"
+			continue
+		}
+		if !inLayout {
+			continue
+		}
+		if after, ok := strings.CutPrefix(line, "Options="); ok {
+			return splitOptions(after)
+		}
+	}
+	return nil
 }
 
 // getXKBOptionsFromGsettingsWithEnv reads XKB options from GNOME gsettings using session env.
@@ -1050,6 +1092,14 @@ func (p *gnomeProvider) Name() DetectionSource {
 // env may be nil when running as regular user (uses current environment).
 func (p *gnomeProvider) Detect(env *SessionEnv) DetectionAttempt {
 	attempt := DetectionAttempt{Provider: SourceGNOME}
+
+	// gsettings returns schema defaults (e.g. <Super>space) even on systems
+	// where GNOME is not running; trust it only in an actual GNOME session.
+	if !isGNOME(env) {
+		attempt.Status = StatusInactive
+		attempt.Error = "GNOME session not detected"
+		return attempt
+	}
 
 	// Check if gsettings is available
 	if _, err := execLookPath("gsettings"); err != nil {
