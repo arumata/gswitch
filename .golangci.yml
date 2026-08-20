@@ -1,0 +1,352 @@
+# golangci-lint v2 configuration for gswitch
+# Project: Linux keyboard layout switcher (uinput-based)
+# Architecture: Single binary CLI, kernel input level, no network/database
+# Version: golangci-lint v2.6.0
+
+version: "2"
+
+# ============================================================
+# RUN SETTINGS
+# ============================================================
+run:
+  timeout: 3m
+  tests: true
+  concurrency: 0
+  issues-exit-code: 1
+  modules-download-mode: readonly
+  allow-parallel-runners: true
+  go: '1.25'
+
+# ============================================================
+# LINTERS CONFIGURATION
+# ============================================================
+linters:
+  default: standard
+
+  enable:
+    # ============================================================
+    # SECURITY
+    # ============================================================
+    - gosec             # Security checks
+
+    # ============================================================
+    # CODE QUALITY & MAINTAINABILITY
+    # ============================================================
+    - gocritic          # Comprehensive code style and performance checks
+    - revive            # Fast, flexible linter (golint replacement)
+    - gocognit          # Cognitive complexity
+    - funlen            # Function length
+    - gocyclo           # Cyclomatic complexity
+    - nestif            # Deep nesting detection
+    - maintidx          # Maintainability index
+
+    # ============================================================
+    # CORRECTNESS & BUG DETECTION
+    # ============================================================
+    - errorlint         # Proper error wrapping (Go 1.13+)
+    - nilerr            # Return nil error but non-nil value
+    - nilnil            # Simultaneous nil error and nil value
+    - makezero          # Incorrect slice initialization
+    - durationcheck     # Duration multiplication mistakes
+
+    # ============================================================
+    # PERFORMANCE
+    # ============================================================
+    - prealloc          # Slice preallocation
+    - perfsprint        # Faster alternatives to fmt.Sprintf
+
+    # ============================================================
+    # STYLE & CONSISTENCY
+    # ============================================================
+    - misspell          # Spelling mistakes in comments/strings
+    - whitespace        # Unnecessary newlines
+    - nolintlint        # Ill-formed nolint directives
+    - unconvert         # Unnecessary type conversions
+    - dupword           # Duplicate words in comments
+    - copyloopvar       # Loop variable copying (Go 1.22+)
+
+    # ============================================================
+    # MODERN GO PRACTICES
+    # ============================================================
+    - mirror            # bytes/strings usage patterns
+    - modernize         # Suggest modern language features
+    - intrange          # Integer range loops (Go 1.22+)
+    - usestdlibvars     # Use stdlib constants/vars
+    - exptostd          # Replace x/exp with stdlib equivalents
+
+    # ============================================================
+    # INTERFACE DESIGN
+    # ============================================================
+    - ireturn           # Accept interfaces, return concrete types
+    - interfacebloat    # Too many methods in interface
+
+    # ============================================================
+    # MISCELLANEOUS
+    # ============================================================
+    - gomoddirectives   # go.mod directive management
+    - asasalint         # []any misuse detection
+    - bidichk           # Dangerous unicode sequences
+    - errname           # Error naming conventions
+
+  # Linter-specific settings
+  settings:
+    # ============================================================
+    # COMPLEXITY THRESHOLDS
+    # ============================================================
+    gocognit:
+      min-complexity: 45
+
+    gocyclo:
+      min-complexity: 45
+
+    funlen:
+      lines: 150
+      statements: 100
+      ignore-comments: true
+
+    maintidx:
+      under: 20
+
+    nestif:
+      min-complexity: 5
+
+    # ============================================================
+    # ERROR HANDLING
+    # ============================================================
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*bufio.Reader).ReadString
+        - os.Chdir
+        - (*log/syslog.Writer).Info
+        - (*log/syslog.Writer).Err
+        - syscall.Gettimeofday
+        - syscall.Syscall
+        # Virtual keyboard operations - errors are non-recoverable in hot path
+        - (*github.com/arumata/gswitch.VirtualKeyboard).KeyUp
+        - (*github.com/arumata/gswitch.VirtualKeyboard).KeyDown
+        - (*github.com/arumata/gswitch.VirtualKeyboard).PressKey
+        # Input reader - device removal during shutdown
+        - (*github.com/arumata/gswitch.InputReader).RemoveDevice
+        # Linux syscalls - errors are non-actionable
+        - golang.org/x/sys/unix.EpollCtl
+        - golang.org/x/sys/unix.IoctlSetInt
+        - golang.org/x/sys/unix.InotifyRmWatch
+
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: true
+      comparison: true
+
+    # ============================================================
+    # SECURITY
+    # ============================================================
+    gosec:
+      excludes:
+        - G104  # errcheck handles this better
+      confidence: medium
+      severity: medium
+
+    # ============================================================
+    # STATIC ANALYSIS
+    # ============================================================
+    staticcheck:
+      checks:
+        - all
+        - -ST1000  # Package comment not required
+        - -ST1003  # Allow underscores in names for constants
+
+    # ============================================================
+    # CODE QUALITY
+    # ============================================================
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+
+      disabled-checks:
+        - unnamedResult
+        - hugeParam
+        - rangeValCopy
+        - commentFormatting
+
+    revive:
+      severity: warning
+      confidence: 0.8
+
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+            - disableStutteringCheck
+        - name: if-return
+        - name: increment-decrement
+        # var-naming disabled: Linux kernel constants use ALL_CAPS convention
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: cognitive-complexity
+          arguments: [45]
+        - name: cyclomatic
+          arguments: [45]
+        # function-length disabled - funlen linter handles this with better configurability
+
+    # ============================================================
+    # INTERFACE DESIGN
+    # ============================================================
+    ireturn:
+      allow:
+        - error
+        - stdlib
+        - anon
+        - generic
+
+    interfacebloat:
+      max: 10
+
+    # ============================================================
+    # STYLE
+    # ============================================================
+    misspell:
+      locale: US
+
+    whitespace:
+      multi-if: false
+      multi-func: false
+
+  # Exclusion rules for linters
+  exclusions:
+    generated: strict
+    warn-unused: true
+
+    presets:
+      - comments
+      - std-error-handling
+
+    rules:
+      # Exclude complexity checks from test files
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - gocyclo
+          - maintidx
+          - errcheck
+
+      # Allow globals in main package (gswitch uses global state for signal handling)
+      - path: main\.go
+        linters:
+          - gochecknoglobals
+
+      # types.go contains Linux kernel constants - ALL_CAPS is conventional
+      - path: types\.go
+        linters:
+          - revive
+        text: "var-naming"
+
+      # Exclude G304 (file inclusion) for layout.go - paths come from trusted XKB config
+      - path: layout\.go
+        text: "G304"
+
+      # Exclude G304 for commands.go - paths come from /dev/input enumeration
+      - path: commands\.go
+        text: "G304"
+
+      # Exclude complexity checks for core event processing functions
+      - path: switcher\.go
+        linters:
+          - gocognit
+          - nestif
+          - funlen
+
+      # Exclude complexity for layout parsing (inherently complex XKB format)
+      - path: layout\.go
+        linters:
+          - gocognit
+          - funlen
+
+      # Exclude complexity for config parsing
+      - path: config\.go
+        linters:
+          - funlen
+
+# ============================================================
+# FORMATTERS
+# ============================================================
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    gofmt:
+      simplify: true
+      rewrite-rules:
+        - pattern: interface{}
+          replacement: any
+
+    goimports:
+      local-prefixes:
+        - github.com/arumata/gswitch
+
+# ============================================================
+# ISSUES CONFIGURATION
+# ============================================================
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+  new: false
+  whole-files: true
+  fix: false
+
+# ============================================================
+# OUTPUT CONFIGURATION
+# ============================================================
+output:
+  formats:
+    text:
+      path: stdout
+      print-issued-lines: true
+      print-linter-name: true
+      colors: true
+
+  sort-order:
+    - linter
+    - file
+
+  show-stats: true
+
+# ============================================================
+# SEVERITY CONFIGURATION
+# ============================================================
+severity:
+  default: error
+
+  rules:
+    - linters:
+        - whitespace
+        - misspell
+      severity: warning

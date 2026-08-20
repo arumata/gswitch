@@ -1,0 +1,83 @@
+# gswitch systemd unit file
+# Keyboard layout switcher daemon with text correction
+#
+# This unit runs gswitch as root with security hardening.
+# Root privileges are required for:
+# - Reading from /dev/input/* (keyboard events)
+# - Writing to /dev/uinput (synthetic key events)
+
+[Unit]
+Description=gswitch - keyboard layout switcher
+Documentation=https://github.com/arumata/gswitch
+Requires=local-fs.target
+After=local-fs.target graphical.target
+
+# Prevent restart loop: max 3 restarts in 30 seconds
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/gswitch -r
+Restart=on-failure
+RestartSec=3
+
+# X11/Wayland environment for clipboard and layout detection
+# This file should be created by user's session startup script
+# The dash prefix (-) means the service won't fail if file doesn't exist
+# See configs/display.env.example for an example.
+EnvironmentFile=-/etc/gswitch/display.env
+
+# === Security Hardening ===
+# Run as root but with restricted capabilities
+
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Filesystem protection
+# strict = entire filesystem read-only except /dev, /proc, /sys
+# We explicitly allow /etc/gswitch via ReadWritePaths
+ProtectSystem=strict
+ReadWritePaths=/etc/gswitch
+
+# Home directories: read-only access needed for ~/.Xauthority
+# Cannot use ProtectHome=true because gswitch reads X11 auth files from $HOME
+ProtectHome=read-only
+
+# Cannot use PrivateTmp=true because X11 socket is at /tmp/.X11-unix/
+# gswitch needs access to this socket for clipboard and layout operations
+PrivateTmp=false
+
+# Device access control
+# closed = deny all device access except explicitly allowed
+# Use device class names instead of paths (wildcards unreliable)
+DevicePolicy=closed
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
+
+# Protect kernel tunables and modules
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+
+# Protect control groups
+ProtectControlGroups=true
+
+# Restrict realtime scheduling (not needed for gswitch)
+RestrictRealtime=true
+
+# Memory execution protection
+MemoryDenyWriteExecute=true
+
+# Restrict address families to only what's needed
+# AF_UNIX for X11 socket, AF_NETLINK for udev
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+# Restrict namespace creation
+RestrictNamespaces=true
+
+# Lock down personality syscall
+LockPersonality=true
+
+[Install]
+WantedBy=graphical.target

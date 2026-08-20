@@ -1,0 +1,6 @@
+builds/
+dist/
+.task/
+.cache/
+.idea/
+.vscode/

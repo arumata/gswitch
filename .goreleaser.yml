@@ -1,0 +1,276 @@
+# GoReleaser configuration for gswitch
+# Documentation: https://goreleaser.com/customization/
+#
+# Local testing:
+#   goreleaser check
+#   goreleaser build --snapshot --clean
+#   goreleaser release --snapshot --clean
+
+version: 2
+
+project_name: gswitch
+
+# =============================================================================
+# Build configuration
+# =============================================================================
+builds:
+  # gswitch - main daemon binary
+  # Runs as systemd service, reads keyboard input, emits corrected keystrokes
+  # CGO required for clipboard support (golang.design/x/clipboard)
+  - id: gswitch
+    binary: gswitch
+    main: ./cmd/gswitch
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+  # gswitch-tray - GTK tray application
+  # Provides system tray icon for configuration and status
+  # CGO required for GTK bindings
+  - id: gswitch-tray
+    binary: gswitch-tray
+    main: ./cmd/gswitch-tray
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+# =============================================================================
+# Archive configuration (for standalone tarballs)
+# =============================================================================
+archives:
+  - id: gswitch-archive
+    ids:
+      - gswitch
+      - gswitch-tray
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - configs/gswitch.service
+      - configs/90-gswitch.rules
+      - configs/default.conf
+      - configs/gswitch-tray.desktop
+      - configs/com.github.arumata.gswitch.policy
+
+# =============================================================================
+# nFPM - Linux package generation (DEB, RPM)
+# =============================================================================
+nfpms:
+  # Single unified package containing daemon and tray application
+  - id: gswitch
+    package_name: gswitch
+    ids:
+      - gswitch
+      - gswitch-tray
+    formats:
+      - deb
+      - rpm
+
+    vendor: gswitch
+    homepage: https://github.com/arumata/gswitch
+    maintainer: arumata
+    description: |
+      Keyboard layout switcher with text correction for Linux.
+      Corrects mistyped text when you've typed in the wrong keyboard layout.
+      Works at the kernel input level using uinput.
+      Includes system tray application for configuration and status.
+    license: MIT
+
+    # Binary installation directory
+    bindir: /usr/bin
+
+    # DEB-specific metadata
+    section: utils
+    priority: optional
+
+    # RPM-specific metadata
+    rpm:
+      group: Applications/System
+
+    # Package contents
+    contents:
+      # --- gswitch daemon files ---
+
+      # Create /etc/gswitch directory
+      - dst: /etc/gswitch
+        type: dir
+        file_info:
+          mode: 0755
+
+      # Systemd service unit
+      - src: configs/gswitch.service
+        dst: /usr/lib/systemd/system/gswitch.service
+        file_info:
+          mode: 0644
+
+      # Udev rules for /dev/uinput access
+      - src: configs/90-gswitch.rules
+        dst: /usr/lib/udev/rules.d/90-gswitch.rules
+        file_info:
+          mode: 0644
+
+      # Default configuration file (preserved on upgrade)
+      # NOTE: deb and rpm differ in how "noreplace" is represented.
+      # - deb: conffile semantics (listed in control's Conffiles)
+      # - rpm: %config(noreplace)
+      - src: configs/default.conf
+        dst: /etc/gswitch/default.conf
+        type: config
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: configs/default.conf
+        dst: /etc/gswitch/default.conf
+        type: config|noreplace
+        packager: rpm
+        file_info:
+          mode: 0644
+
+      # --- gswitch-tray files ---
+
+      # Autostart desktop entry (XDG autostart)
+      - src: configs/gswitch-tray.desktop
+        dst: /etc/xdg/autostart/gswitch-tray.desktop
+        file_info:
+          mode: 0644
+
+      # Application desktop entry (for app menus)
+      - src: configs/gswitch-tray.desktop
+        dst: /usr/share/applications/gswitch-tray.desktop
+        file_info:
+          mode: 0644
+
+      # Polkit policy for privilege elevation
+      - src: configs/com.github.arumata.gswitch.policy
+        dst: /usr/share/polkit-1/actions/com.github.arumata.gswitch.policy
+        file_info:
+          mode: 0644
+
+      # Icons - PNG sizes
+      - src: assets/icons/hicolor/16x16/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/16x16/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/22x22/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/22x22/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/24x24/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/24x24/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/32x32/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/32x32/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/48x48/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/48x48/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/64x64/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/64x64/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/128x128/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/128x128/apps/gswitch.png
+        file_info:
+          mode: 0644
+      - src: assets/icons/hicolor/256x256/apps/gswitch.png
+        dst: /usr/share/icons/hicolor/256x256/apps/gswitch.png
+        file_info:
+          mode: 0644
+
+      # Icons - SVG (scalable)
+      - src: assets/icons/hicolor/scalable/apps/gswitch.svg
+        dst: /usr/share/icons/hicolor/scalable/apps/gswitch.svg
+        file_info:
+          mode: 0644
+
+    # Maintainer scripts (combined from both)
+    scripts:
+      postinstall: scripts/postinstall.sh
+      preremove: scripts/preremove.sh
+      postremove: scripts/postremove.sh
+
+    # Format-specific dependencies
+    overrides:
+      deb:
+        dependencies:
+          - systemd
+          - libgtk-3-0
+          - "libayatana-appindicator3-1 | libappindicator3-1"
+        recommends:
+          - libgtk-3-bin
+          - desktop-file-utils
+          - wl-clipboard
+      rpm:
+        dependencies:
+          - systemd
+          - gtk3
+          - libappindicator-gtk3
+        recommends:
+          - desktop-file-utils
+          - wl-clipboard
+
+# =============================================================================
+# Checksum configuration
+# =============================================================================
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# =============================================================================
+# Snapshot configuration (for local testing)
+# =============================================================================
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+# =============================================================================
+# Changelog (for GitHub releases)
+# =============================================================================
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Other
+      order: 999
+
+# =============================================================================
+# Release configuration
+# =============================================================================
+release:
+  # Release name template
+  name_template: "gswitch {{ .Tag }}"
+  # Draft mode: false = publish immediately
+  draft: false
+  # Pre-release detection: tags like v1.0.0-rc1 are marked as prerelease
+  prerelease: auto

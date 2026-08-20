@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=gswitch Tray
+Name[ru]=gswitch Трей
+Comment=Keyboard layout switcher tray icon
+Comment[ru]=Иконка переключателя раскладки клавиатуры
+Exec=gswitch-tray
+TryExec=/usr/bin/gswitch-tray
+Icon=gswitch
+Terminal=false
+StartupNotify=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2

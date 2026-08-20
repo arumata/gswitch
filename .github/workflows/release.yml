@@ -1,0 +1,107 @@
+# Release workflow for gswitch
+# Triggered by pushing a tag matching v* (e.g., v1.0.0, v1.2.3-rc1)
+# Creates GitHub Release with DEB, RPM packages and checksums
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+
+    steps:
+      # Checkout with full history for git describe (version detection)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Setup Go with version from go.mod
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Install build dependencies for gswitch-tray (GTK, AppIndicator)
+      # Required for CGO compilation of GTK bindings
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            rpm
+
+      # Run GoReleaser to build and publish release
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Smoke test: verify DEB package contents
+      - name: Verify DEB package contents
+        shell: bash
+        run: |
+          echo "=== DEB packages ==="
+          shopt -s nullglob
+          debs=(dist/*.deb)
+          if (( ${#debs[@]} == 0 )); then
+            echo "No .deb artifacts found in dist/ (expected at least one)." >&2
+            exit 1
+          fi
+          for deb in "${debs[@]}"; do
+            echo "--- $deb ---"
+            echo ":: Key files:"
+            dpkg -c "$deb" | grep -E '(gswitch|systemd|udev|hicolor|polkit)' || true
+            echo ""
+            echo ":: Package info:"
+            dpkg-deb -I "$deb" | head -15
+            echo ""
+          done
+
+      # Smoke test: verify RPM package contents
+      - name: Verify RPM package contents
+        shell: bash
+        run: |
+          echo "=== RPM packages ==="
+          shopt -s nullglob
+          rpms=(dist/*.rpm)
+          if (( ${#rpms[@]} == 0 )); then
+            echo "No .rpm artifacts found in dist/ (expected at least one)." >&2
+            exit 1
+          fi
+          for rpm_file in "${rpms[@]}"; do
+            echo "--- $rpm_file ---"
+            echo ":: Key files:"
+            rpm -qlp "$rpm_file" | grep -E '(gswitch|systemd|udev|hicolor|polkit)' || true
+            echo ""
+            echo ":: Package dependencies:"
+            rpm -qpR "$rpm_file"
+            echo ""
+          done
+
+      # List all artifacts for verification
+      - name: List release artifacts
+        shell: bash
+        run: |
+          echo "=== Release artifacts ==="
+          ls -lh dist/*.deb dist/*.rpm dist/*.tar.gz dist/checksums.txt 2>/dev/null || true
+          echo ""
+          echo "=== Checksums ==="
+          if [[ ! -f dist/checksums.txt ]]; then
+            echo "dist/checksums.txt not found (expected checksums to be generated)." >&2
+            exit 1
+          fi
+          cat dist/checksums.txt

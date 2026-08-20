@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Keyboard base -->
+  <rect x="2" y="14" width="44" height="26" rx="3" fill="#424242" stroke="#212121" stroke-width="1"/>
+  <!-- Keys row 1 -->
+  <rect x="5" y="17" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="13" y="17" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="21" y="17" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="29" y="17" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="37" y="17" width="6" height="5" rx="1" fill="#757575"/>
+  <!-- Keys row 2 -->
+  <rect x="5" y="24" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="13" y="24" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="21" y="24" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="29" y="24" width="6" height="5" rx="1" fill="#757575"/>
+  <rect x="37" y="24" width="6" height="5" rx="1" fill="#757575"/>
+  <!-- Spacebar -->
+  <rect x="13" y="31" width="22" height="5" rx="1" fill="#757575"/>
+  <!-- Highlight key (switch indicator) -->
+  <rect x="5" y="31" width="6" height="5" rx="1" fill="#4CAF50"/>
+  <rect x="37" y="31" width="6" height="5" rx="1" fill="#2196F3"/>
+  <!-- Arrow indicators -->
+  <path d="M 16 8 L 24 3 L 32 8" fill="none" stroke="#4CAF50" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 32 46 L 24 41 L 16 46" fill="none" stroke="#2196F3" stroke-width="2" stroke-linecap="round"/>
+</svg>

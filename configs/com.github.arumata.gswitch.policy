@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>gswitch</vendor>
+  <vendor_url>https://github.com/arumata/gswitch</vendor_url>
+
+  <action id="com.github.arumata.gswitch.write-config">
+    <description>Write gswitch configuration</description>
+    <description xml:lang="ru">Сохранить настройки gswitch</description>
+    <message>Authentication is required to modify gswitch settings</message>
+    <message xml:lang="ru">Для изменения настроек gswitch требуется аутентификация</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/gswitch</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">--write-config</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <action id="com.github.arumata.gswitch.manage-service">
+    <description>Manage gswitch systemd service</description>
+    <description xml:lang="ru">Управление сервисом gswitch</description>
+    <message>Authentication is required to manage gswitch service</message>
+    <message xml:lang="ru">Для управления сервисом gswitch требуется аутентификация</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/gswitch</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">--systemctl</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>
