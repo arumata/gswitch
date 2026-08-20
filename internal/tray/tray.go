@@ -104,7 +104,7 @@ func (t *Tray) onReady() {
 	// Set initial icon (will be updated based on detection status and layout)
 	systray.SetIcon(kbIcon)
 	systray.SetTitle("")
-	systray.SetTooltip("gswitch - Layout switcher")
+	systray.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 
 	// Create service status menu items
 	t.mServiceStatus = systray.AddMenuItem(strTrayServiceUnknown, "Service status")
@@ -417,7 +417,7 @@ func (t *Tray) applyDetectionStatus(info DetectionInfo) {
 			systray.SetTooltip(tooltip)
 		default:
 			systray.SetTitle("gswitch")
-			systray.SetTooltip("gswitch - Layout switcher")
+			systray.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 		}
 
 	case TrayStatusNeedsConfig:

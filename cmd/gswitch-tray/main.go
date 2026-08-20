@@ -10,10 +10,14 @@ import (
 	"github.com/arumata/gswitch/internal/tray"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
 	// Initialize GTK (required before creating any GTK widgets)
 	gtk.Init(nil)
 
+	tray.SetVersion(version)
 	app := tray.New()
 
 	fmt.Println("Starting gswitch-tray...")

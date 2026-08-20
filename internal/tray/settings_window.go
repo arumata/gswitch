@@ -476,28 +476,37 @@ func (w *SettingsWindow) createDevicesSection() (*gtk.Frame, error) {
 	return frame, nil
 }
 
-// createButtonBox creates the Cancel and Apply buttons.
+// createButtonBox creates the bottom bar: version label and Cancel/Apply buttons.
 func (w *SettingsWindow) createButtonBox() (*gtk.Box, error) {
 	buttonBox, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 10)
 	if err != nil {
 		return nil, err
 	}
-	buttonBox.SetHAlign(gtk.ALIGN_END)
+	buttonBox.SetMarginStart(10)
 	buttonBox.SetMarginEnd(10)
 
-	cancelButton, err := gtk.ButtonNewWithLabel(strButtonCancel)
+	versionLabel, err := gtk.LabelNew("gswitch " + appVersion)
 	if err != nil {
 		return nil, err
 	}
-	cancelButton.Connect("clicked", w.onCancelClicked)
-	buttonBox.PackStart(cancelButton, false, false, 0)
+	if ctx, err := versionLabel.GetStyleContext(); err == nil {
+		ctx.AddClass("dim-label")
+	}
+	buttonBox.PackStart(versionLabel, false, false, 0)
 
 	applyButton, err := gtk.ButtonNewWithLabel(strButtonApply)
 	if err != nil {
 		return nil, err
 	}
 	applyButton.Connect("clicked", w.onApplyClicked)
-	buttonBox.PackStart(applyButton, false, false, 0)
+	buttonBox.PackEnd(applyButton, false, false, 0)
+
+	cancelButton, err := gtk.ButtonNewWithLabel(strButtonCancel)
+	if err != nil {
+		return nil, err
+	}
+	cancelButton.Connect("clicked", w.onCancelClicked)
+	buttonBox.PackEnd(cancelButton, false, false, 0)
 
 	return buttonBox, nil
 }
