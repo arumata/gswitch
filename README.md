@@ -6,6 +6,7 @@ It works at the `/dev/input` level and replays corrected keystrokes through `uin
 ## Key Features
 
 - System-wide correction in any app
+- Works on X11 and Wayland (KDE Plasma supported, correction itself is display-server independent)
 - Double-Shift trigger by default (or custom convert key)
 - Last-word, whole-phrase, and selected-text conversion
 - Automatic keyboard hotplug handling
