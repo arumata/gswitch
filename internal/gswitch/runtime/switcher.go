@@ -602,6 +602,12 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 				return
 			}
 
+			// Bare double-shift without Ctrl and without text: nothing to do
+			if action == ActionDoubleShiftNoText {
+				s.logDebug("Double-shift without text ignored")
+				return
+			}
+
 			// In degraded mode, buffer convert is disabled (no layout-switch key)
 			if s.degradedMode {
 				s.logDebug("Degraded mode: buffer convert disabled")

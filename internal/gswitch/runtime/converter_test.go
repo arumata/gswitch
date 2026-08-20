@@ -212,15 +212,41 @@ func TestConverter_Process_DoubleShift_NoText(t *testing.T) {
 	c := NewConverter()
 	c.ConvKey = 0 // double-shift mode
 
-	// Double-shift without text
+	// Double-shift without text: no buffer conversion, but the trigger
+	// itself must be reported so Ctrl+DoubleShift can convert the selection
 	c.Push(testKeyLeftShift, K_DOWN)
 	c.Push(testKeyLeftShift, K_UP)
 	c.Push(testKeyLeftShift, K_DOWN)
 	c.Push(testKeyLeftShift, K_UP)
 
 	action := c.Process()
-	if action != ActionNone {
-		t.Errorf("expected ActionNone for double-shift without text, got %v", action)
+	if action != ActionDoubleShiftNoText {
+		t.Errorf("expected ActionDoubleShiftNoText for double-shift without text, got %v", action)
+	}
+	if len(c.buffer) != 0 {
+		t.Errorf("expected buffer to be trimmed, got %d events", len(c.buffer))
+	}
+}
+
+func TestConverter_Process_DoubleShift_NoText_StrayShiftPrefix(t *testing.T) {
+	c := NewConverter()
+	c.ConvKey = 0 // double-shift mode
+
+	// A single aborted shift tap left in the buffer must not mask the trigger
+	c.Push(testKeyLeftShift, K_DOWN)
+	c.Push(testKeyLeftShift, K_UP)
+	if got := c.Process(); got != ActionNone {
+		t.Fatalf("expected ActionNone after single shift tap, got %v", got)
+	}
+
+	c.Push(testKeyLeftShift, K_DOWN)
+	c.Push(testKeyLeftShift, K_UP)
+	c.Push(testKeyLeftShift, K_DOWN)
+	c.Push(testKeyLeftShift, K_UP)
+
+	action := c.Process()
+	if action != ActionDoubleShiftNoText {
+		t.Errorf("expected ActionDoubleShiftNoText with stray shift prefix, got %v", action)
 	}
 }
 

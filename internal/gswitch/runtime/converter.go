@@ -9,6 +9,10 @@ const (
 	ActionNone Action = iota
 	ActionConvertWord
 	ActionConvertAll
+	// ActionDoubleShiftNoText: double-shift trigger fired but the buffer has
+	// no text. Nothing to convert in the buffer, but the caller may act on
+	// the trigger itself (Ctrl+DoubleShift converts the selection).
+	ActionDoubleShiftNoText
 )
 
 // KeyEvent represents a key event in the buffer
@@ -203,7 +207,7 @@ func (c *Converter) processDoubleShift() Action {
 	// 1. Double shift without other shift pressed -> convert word
 	// Pattern: shift1↓ shift1↑ shift1↓ shift1↑ (same shift key pressed twice)
 	// Need at least 4 shift events at the end of buffer AND some text before
-	if n >= 4 && hasText && c.isDoubleShiftPattern(false) {
+	if n >= 4 && hasText && c.isDoubleShiftPattern() {
 		c.trimBuffer()
 		return ActionConvertWord
 	}
@@ -216,20 +220,19 @@ func (c *Converter) processDoubleShift() Action {
 		return ActionConvertAll
 	}
 
-	// 3. Just switch layout with shifts, if buffer has only shifts (no letters)
-	// This handles the case when user does double-shift without typing anything
-	// We should NOT trigger conversion in this case - just clear the buffer
-	if !hasText && c.isDoubleShiftPattern(true) {
+	// 3. Double shift with only shifts in the buffer (no letters):
+	// no buffer conversion to do, but report the trigger so the caller can
+	// still act on it (Ctrl+DoubleShift -> selection conversion)
+	if !hasText && c.isDoubleShiftPattern() {
 		c.trimBuffer()
-		return ActionNone // Don't trigger conversion without text
+		return ActionDoubleShiftNoText
 	}
 
 	return ActionNone
 }
 
 // isDoubleShiftPattern checks if the buffer ends with a double-tap of the SAME shift key
-// If exactLen is true, buffer must be exactly 4 elements
-func (c *Converter) isDoubleShiftPattern(exactLen bool) bool {
+func (c *Converter) isDoubleShiftPattern() bool {
 	n := len(c.buffer)
 	if n < 4 {
 		return false
@@ -256,8 +259,8 @@ func (c *Converter) isDoubleShiftPattern(exactLen bool) bool {
 		return false
 	}
 
-	// If not exactLen, make sure there's no other shift held before this pattern
-	if !exactLen && n > 4 {
+	// Make sure there's no other shift held before this pattern
+	if n > 4 {
 		prev := c.buffer[n-5]
 		if c.isShift(prev.Code) && prev.Value == K_DOWN {
 			return false // Another shift is held - this should be ConvertAll, not ConvertWord
