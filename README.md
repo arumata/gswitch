@@ -20,8 +20,6 @@ You typed a word, but the wrong layout was active:
 
 Double-tap <kbd>Shift</kbd> — gswitch erases the word, switches the layout, and retypes it correctly. No mouse, no retyping, no per-app plugins.
 
-![gswitch demo: mistyped word fixed with a double-Shift](assets/demo.gif)
-
 It works at the Linux kernel input level: keystrokes are read from `/dev/input` (evdev) and corrections are replayed through a virtual keyboard (`uinput`). Because of this, correction is completely independent of the display server, toolkit, or application — it works in terminals, browsers, IDEs, Electron apps, and games alike.
 
 ## Features
