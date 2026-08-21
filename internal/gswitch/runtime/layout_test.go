@@ -60,6 +60,11 @@ esac
 	}
 	t.Setenv("HOME", tmp)
 	t.Setenv("PATH", binDir)
+	// Hosted runners may inherit desktop variables (Ubuntu runners commonly
+	// advertise GNOME). Keep the fixture hermetic so each subtest's
+	// XDG_CURRENT_DESKTOP is the only active desktop signal.
+	t.Setenv("XDG_SESSION_DESKTOP", "")
+	t.Setenv("DESKTOP_SESSION", "")
 
 	tests := []struct {
 		desktop string
