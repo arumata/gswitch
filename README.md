@@ -16,14 +16,17 @@ You typed a word, but the wrong layout was active:
 | `;qdq;e` | `madame` | English ↔ French (AZERTY) |
 | `ma;ana` | `mañana` | English ↔ Spanish |
 
-Double-tap <kbd>Shift</kbd> — gswitch erases the word, switches the layout, and retypes it correctly. No mouse, no retyping, no per-app plugins.
+By default, double-tap <kbd>Shift</kbd>: gswitch erases the word, switches the
+layout, and retypes it correctly. You can replace double-Shift with another key
+in the tray application's Settings window. No mouse, no retyping, no per-app
+plugins.
 
 It works at the Linux kernel input level: keystrokes are read from `/dev/input` (evdev) and corrections are replayed through a virtual keyboard (`uinput`). Because of this, correction is completely independent of the display server, toolkit, or application — it works in terminals, browsers, IDEs, Electron apps, and games alike.
 
 ## Features
 
 - **Three correction modes**
-  - *Last word* — double-tap <kbd>Shift</kbd>
+  - *Last word* — double-tap <kbd>Shift</kbd> by default
   - *Whole phrase* (everything since the last <kbd>Enter</kbd>) — hold one <kbd>Shift</kbd>, double-tap the other
   - *Selected text* — select text anywhere, press <kbd>Ctrl</kbd> + double-<kbd>Shift</kbd>
 - **System-wide** — operates below the display server; any app, X11 or Wayland
@@ -131,7 +134,9 @@ gswitch --debug
 systemctl --user enable --now gswitch.service
 ```
 
-Type a word in the wrong layout and double-tap <kbd>Shift</kbd>.
+Type a word in the wrong layout and double-tap <kbd>Shift</kbd>. This is the
+default trigger; use the tray application's Settings window to replace it with
+another key.
 
 ## Usage
 
