@@ -58,7 +58,7 @@ A tool that reads every keystroke deserves scrutiny — here is the full picture
 
 - **No network code.** gswitch never sends anything anywhere; there is not a single network call in the codebase.
 - **Keystrokes never touch the disk.** The key buffer lives only in process memory, is never logged, and is cleared whenever focus can change (mouse click, <kbd>Tab</kbd>, arrows, <kbd>Enter</kbd>, …).
-- **Root is used only for input access** — reading `/dev/input/*` and writing to `/dev/uinput`. Nothing else is privileged.
+- **Root is used for input access and session integration** — reading `/dev/input/*`, emitting through `/dev/uinput`, and talking to your graphical session; helper lookups run with privileges dropped to the session user. Tray config writes and service control go through polkit-gated, allowlisted entry points. Details in [SECURITY.md](SECURITY.md).
 - **Releases are built by CI from a git tag** with GoReleaser and ship a `checksums.txt`; the full source is here to audit.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md) for private reporting.
