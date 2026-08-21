@@ -488,7 +488,7 @@ layout-switch-delay=%d
 # add its UID to the blacklist below.
 # gswitch will ignore all blacklisted devices.
 # Use commas (,) to separate multiple UIDs.
-# Run 'sudo gswitch --debug' to list your devices' UIDs.
+# Run 'gswitch --debug' to list your devices' UIDs.
 # Examples:
 # blacklist=0000:0000:0000:0000:0000000000000000
 # blacklist=0000:0000:0000:0000:0000000000000000,0000:0000:0000:0000:0000000000000000

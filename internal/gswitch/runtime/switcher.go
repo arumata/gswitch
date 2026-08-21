@@ -118,29 +118,13 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 		}
 	}()
 
-	// Prepare session environment. Clipboard and layout detection need it in
-	// every mode; auto-detection mode additionally waits for a session.
+	// A user service already runs inside the target graphical session and must
+	// keep its own environment. Root compatibility mode has to discover that
+	// session and drop privileges for session helpers.
 	autoDetect := config.LayoutSwitchAuto && len(config.LayoutSwitchKey) == 0
-	env, err := getActiveSessionEnv()
-	switch {
-	case errors.Is(err, ErrNoActiveSession):
-		if autoDetect {
-			// Wait for session to appear (e.g., systemd started before user login)
-			env, err = s.waitForSession(s.ctx)
-			if err != nil {
-				return nil, fmt.Errorf("failed while waiting for session: %w", err)
-			}
-		} else {
-			s.log("Warning: no active graphical session, clipboard may be unavailable")
-		}
-	case errors.Is(err, ErrNoSystemd):
-		// Non-systemd: best-effort with current environment
-		s.log("Warning: %v, continuing with current environment", err)
-	case err != nil:
-		if autoDetect {
-			return nil, fmt.Errorf("failed to get session env: %w", err)
-		}
-		s.log("Warning: failed to get session env: %v", err)
+	env, err := s.prepareSessionEnvironment(autoDetect, os.Geteuid() == 0)
+	if err != nil {
+		return nil, err
 	}
 
 	// Apply session environment before X11/Wayland setup
@@ -202,7 +186,7 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 		s.logDebug("Using XAUTHORITY=%s", xauth)
 	}
 
-	s.clipboard, err = NewClipboard()
+	s.clipboard, err = NewClipboard(s.sessionEnv)
 	if err != nil {
 		s.log("Warning: clipboard not available: %v", err)
 		s.log("Selection conversion will be disabled")
@@ -218,6 +202,37 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 	cleanupLogger = false
 	cleanupSignalHandler = false
 	return s, nil
+}
+
+func (s *Switcher) prepareSessionEnvironment(autoDetect, runningAsRoot bool) (*SessionEnv, error) {
+	if !runningAsRoot {
+		return nil, nil //nolint:nilnil // nil selects the current user's environment.
+	}
+
+	env, err := getActiveSessionEnv()
+	switch {
+	case errors.Is(err, ErrNoActiveSession):
+		if autoDetect {
+			// Compatibility mode may start before login and must wait for the
+			// graphical user whose environment and credentials it needs.
+			env, err = s.waitForSession(s.ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed while waiting for session: %w", err)
+			}
+		} else {
+			s.log("Warning: no active graphical session, clipboard may be unavailable")
+		}
+	case errors.Is(err, ErrNoSystemd):
+		// Non-systemd root foreground mode is best-effort.
+		s.log("Warning: %v, continuing with current environment", err)
+	case err != nil:
+		if autoDetect {
+			return nil, fmt.Errorf("failed to get session env: %w", err)
+		}
+		s.log("Warning: failed to get session env: %v", err)
+	}
+
+	return env, nil
 }
 
 func (s *Switcher) initLayoutConverter() error {
@@ -537,7 +552,13 @@ func (s *Switcher) handleDeviceEvent(event DeviceEvent) {
 	if event.Connected {
 		time.Sleep(DeviceSettleMs * time.Millisecond)
 
-		device, err := s.inputReader.AddDevice(event.Path)
+		device, err := addDeviceWithRetry(
+			s.ctx,
+			event.Path,
+			DeviceOpenRetryAttempts,
+			DeviceOpenRetryDelayMs*time.Millisecond,
+			s.inputReader.AddDevice,
+		)
 		if err != nil {
 			s.logDebug("Skipped device %s: %v", event.Path, err)
 			return
@@ -552,6 +573,49 @@ func (s *Switcher) handleDeviceEvent(event DeviceEvent) {
 			}
 		}
 	}
+}
+
+type addDeviceFunc func(string) (*Device, error)
+
+func addDeviceWithRetry(
+	ctx context.Context,
+	path string,
+	attempts int,
+	delay time.Duration,
+	add addDeviceFunc,
+) (*Device, error) {
+	if attempts <= 0 {
+		return nil, errors.New("device open retry requires at least one attempt")
+	}
+
+	var err error
+	for attempt := range attempts {
+		var device *Device
+		device, err = add(path)
+		if err == nil {
+			return device, nil
+		}
+		if !isRetryableDeviceOpenError(err) || attempt == attempts-1 {
+			return nil, err
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, err
+}
+
+func isRetryableDeviceOpenError(err error) bool {
+	return errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, os.ErrNotExist)
 }
 
 func (s *Switcher) readAllDeviceEvents() {

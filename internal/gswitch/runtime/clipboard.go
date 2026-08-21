@@ -15,11 +15,12 @@ import (
 type Clipboard struct {
 	useWayland   bool
 	x11Selection *X11Selection
+	sessionEnv   *SessionEnv
 }
 
 // NewClipboard creates a new Clipboard instance
-func NewClipboard() (*Clipboard, error) {
-	cb := &Clipboard{}
+func NewClipboard(sessionEnv *SessionEnv) (*Clipboard, error) {
+	cb := &Clipboard{sessionEnv: sessionEnv}
 
 	// In a Wayland session prefer wl-clipboard: it talks to the compositor
 	// directly and sees selections of both native and XWayland clients.
@@ -94,7 +95,10 @@ func (cb *Clipboard) Write(text string) error {
 }
 
 func (cb *Clipboard) readWayland() (string, error) {
-	cmd := exec.Command("wl-paste", "--no-newline")
+	cmd, err := cb.waylandCommand("wl-paste", "--no-newline")
+	if err != nil {
+		return "", fmt.Errorf("prepare wl-paste: %w", err)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -109,7 +113,10 @@ func (cb *Clipboard) readWayland() (string, error) {
 }
 
 func (cb *Clipboard) writeWayland(text string) error {
-	cmd := exec.Command("wl-copy")
+	cmd, err := cb.waylandCommand("wl-copy")
+	if err != nil {
+		return fmt.Errorf("prepare wl-copy: %w", err)
+	}
 	cmd.Stdin = strings.NewReader(text)
 
 	var stderr bytes.Buffer
@@ -126,7 +133,10 @@ func (cb *Clipboard) writeWayland(text string) error {
 func (cb *Clipboard) ReadPrimarySelection() (string, error) {
 	if cb.useWayland {
 		// Wayland: use wl-paste with --primary
-		cmd := exec.Command("wl-paste", "--primary", "--no-newline")
+		cmd, err := cb.waylandCommand("wl-paste", "--primary", "--no-newline")
+		if err != nil {
+			return "", fmt.Errorf("prepare wl-paste --primary: %w", err)
+		}
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -146,6 +156,10 @@ func (cb *Clipboard) ReadPrimarySelection() (string, error) {
 	}
 
 	return "", errors.New("PRIMARY selection not available")
+}
+
+func (cb *Clipboard) waylandCommand(name string, args ...string) (*exec.Cmd, error) {
+	return CommandAsSessionUser(cb.sessionEnv, name, args...)
 }
 
 // HasPrimarySelection returns true if PRIMARY selection is available

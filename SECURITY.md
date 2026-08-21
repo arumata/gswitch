@@ -1,7 +1,9 @@
 # Security Policy
 
-gswitch runs as a privileged daemon and reads raw keyboard input from
-`/dev/input/*`. Security reports are taken seriously.
+gswitch reads raw keyboard input from `/dev/input/*` and can inject input via
+`/dev/uinput`. The daemon runs as the active graphical-session user, not as
+root, but those device permissions are security-sensitive. Security reports
+are taken seriously.
 
 ## Supported Versions
 
@@ -24,15 +26,27 @@ to stay anonymous).
 - **In-memory buffer only.** Buffered keystrokes live only in process memory,
   are never written to disk or logs, and the buffer is cleared whenever focus
   can change (mouse clicks, Tab, arrows, Enter, …).
-- **What root is used for.** Reading `/dev/input/*`, emitting keys through
-  `/dev/uinput`, and integrating with the active graphical session: the
-  daemon discovers the session environment (including the user's
-  `Xauthority` for X11 selection/clipboard access), and helper commands
-  (`gsettings`, clipboard tools) are spawned with privileges dropped to
-  the session user. In addition, two privileged entry points exist for
-  the tray application, gated by polkit (`pkexec`): `--write-config`
-  (writes `/etc/gswitch/default.conf`) and `--systemctl` (an allowlist of
-  start/stop/restart/enable/disable for the fixed unit `gswitch.service`).
+- **No root daemon.** The packaged daemon is a systemd user service. udev and
+  systemd-logind grant the active local session ACLs for keyboard event nodes
+  and `/dev/uinput`; permanent membership in the global `input` group is not
+  required. The kernel interfaces require permission on their device nodes,
+  not UID 0.
+- **Sensitive device authority.** Access to raw keyboard events is equivalent
+  to keylogger capability within the accessible session, and access to uinput
+  permits synthetic input. Running as an ordinary user limits the impact of a
+  daemon compromise but does not make these interfaces safe for untrusted
+  code. ACL removal does not revoke file descriptors that are already open;
+  logging out stops the user service, but concurrent-session/fast-user-switch
+  setups require particular care.
+- **What root is still used for.** Package installation installs binaries,
+  the systemd user unit, and udev rules. The tray's only privileged runtime
+  entry point is the polkit-gated `--write-config`, which writes the fixed
+  system configuration file `/etc/gswitch/default.conf`. Service control uses
+  `systemctl --user` and does not cross a privilege boundary.
+- **Root compatibility mode.** A manual root foreground launch remains
+  supported for troubleshooting. Session-specific helpers are then spawned
+  with the graphical user's UID, GID, supplementary groups, and environment;
+  this is not the packaged or recommended operating mode.
 - **Reproducible artifacts.** Releases are built by CI with GoReleaser
   directly from a git tag; every release ships a `checksums.txt`.
 - **Auditable.** The full source of the released code is in this repository.

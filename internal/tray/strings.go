@@ -133,7 +133,7 @@ const (
 // Devices section
 const (
 	strDevicesLoading    = "Loading device list..."
-	strDevicesNoAccess   = "No access to input devices.\nRoot privileges or input group membership is required."
+	strDevicesNoAccess   = "No access to input device metadata."
 	strDevicesEmpty      = "No keyboards found"
 	strDevicesAllBlocked = "All keyboards are blocked!"
 	strDeviceBlocked     = "(blocked)"

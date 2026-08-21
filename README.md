@@ -15,8 +15,7 @@ You typed a word, but the wrong layout was active:
 |---|---|---|
 | `ghbdtn` | `привет` | English ↔ Russian |
 | `yeit` | `zeit` | English ↔ German (QWERTZ) |
-| `;qdq;e` | `madame` | English ↔ French (AZERTY) |
-| `espa;ol` | `español` | English ↔ Spanish |
+| `ma;ana` | `mañana` | English ↔ Spanish |
 
 Double-tap <kbd>Shift</kbd> — gswitch erases the word, switches the layout, and retypes it correctly. No mouse, no retyping, no per-app plugins.
 
@@ -36,7 +35,7 @@ It works at the Linux kernel input level: keystrokes are read from `/dev/input` 
 - **Multi-keyboard aware** — handles several keyboards at once, with hotplug support
 - **Tray application** — status indicator, settings GUI, and service control
 - **Configurable trigger** — use a custom key (e.g. <kbd>Caps Lock</kbd> or <kbd>Pause</kbd>) instead of double-Shift
-- **Runs as a systemd service** — starts with the system, survives session restarts
+- **Runs as a systemd user service** — starts with your graphical session
 
 ## How It Works
 
@@ -58,7 +57,10 @@ A tool that reads every keystroke deserves scrutiny — here is the full picture
 
 - **No network code.** gswitch never sends anything anywhere; there is not a single network call in the codebase.
 - **Keystrokes never touch the disk.** The key buffer lives only in process memory, is never logged, and is cleared whenever focus can change (mouse click, <kbd>Tab</kbd>, arrows, <kbd>Enter</kbd>, …).
-- **Root is used for input access and session integration** — reading `/dev/input/*`, emitting through `/dev/uinput`, and talking to your graphical session; helper lookups run with privileges dropped to the session user. Tray config writes and service control go through polkit-gated, allowlisted entry points. Details in [SECURITY.md](SECURITY.md).
+- **The daemon does not run as root.** udev/logind grants the active local
+  session access to keyboard event nodes and `/dev/uinput`. Only installation
+  and writing the fixed system config use administrator authorization; service
+  control is `systemctl --user`. Details in [SECURITY.md](SECURITY.md).
 - **Releases are built by CI from a git tag** with GoReleaser and ship a `checksums.txt`; the full source is here to audit.
 
 Found a vulnerability? See [SECURITY.md](SECURITY.md) for private reporting.
@@ -79,7 +81,10 @@ The suite covers word/phrase/selection correction in both directions for all fiv
 
 ## Installation
 
-Requirements: Linux with `uinput`, root access (to read `/dev/input/*`), systemd for service mode. Selection conversion on pure Wayland additionally needs `wl-clipboard` (installed automatically as a package dependency where supported).
+Requirements: Linux with `uinput`, systemd/logind for packaged device ACLs and
+service mode, and administrator access to install the package. The daemon runs
+as the graphical user. Selection conversion on pure Wayland additionally needs
+`wl-clipboard` (installed automatically where supported).
 
 ### From packages (recommended)
 
@@ -90,7 +95,7 @@ sudo apt install ./gswitch_<version>_linux_amd64.deb   # Debian/Ubuntu
 sudo dnf install ./gswitch_<version>_linux_amd64.rpm   # Fedora
 
 sudo gswitch --configure
-sudo systemctl enable --now gswitch
+systemctl --user enable --now gswitch.service
 ```
 
 The package installs the daemon, the tray application, a systemd unit, udev rules, icons, and a polkit policy. The tray starts automatically on next login.
@@ -119,10 +124,10 @@ go build -o builds/gswitch ./cmd/gswitch
 sudo gswitch --configure
 
 # 2) Try it in the foreground with verbose logs
-sudo gswitch --debug
+gswitch --debug
 
 # 3) Then run it as a service
-sudo systemctl enable --now gswitch
+systemctl --user enable --now gswitch.service
 ```
 
 Type a word in the wrong layout and double-tap <kbd>Shift</kbd>.
@@ -148,7 +153,10 @@ gswitch --detect-layout-switch     # detect layout-switch hotkey, JSON output
 
 ### Tray application
 
-`gswitch-tray` shows the service status in the system tray and provides a settings window (trigger key capture, delays, service start/stop). It writes the system config and controls the service through polkit (`pkexec`), so no manual `sudo` is needed.
+`gswitch-tray` shows the service status in the system tray and provides a
+settings window (trigger key capture, delays, service start/stop). It controls
+the daemon through `systemctl --user`; polkit is used only when writing the
+system config.
 
 <img src="assets/tray-settings.png" width="400" alt="gswitch tray settings window">
 
@@ -186,7 +194,7 @@ Notes:
 - `layout-switch=auto` detects your hotkey from XKB options, GNOME keybindings, or KDE settings; run `gswitch --detect-layout-switch` to see what it finds.
 - Use `sudo showkey` to look up scancodes for manual configuration.
 - With more than two layouts configured in the system, set `layout1`/`layout2` explicitly.
-- Run `sudo gswitch -d` to see device UIDs for `blacklist`.
+- Run `gswitch -d` to see device UIDs for `blacklist`.
 
 ### Layout detection order
 
@@ -194,7 +202,8 @@ Layouts for text conversion are detected from, in order: **fcitx5** (`~/.config/
 
 ## Troubleshooting
 
-**Service fails to start** — check logs: `journalctl -u gswitch -f`.
+**Service fails to start** — check logs:
+`journalctl --user -u gswitch.service -f`.
 
 **Selection conversion does nothing on Wayland** — the packages pull in `wl-clipboard` automatically as a recommended dependency; if it is missing (installed with `dpkg -i` / `--no-install-recommends`, or built from source), install it manually.
 
@@ -218,8 +227,10 @@ Layouts for text conversion are detected from, in order: **fcitx5** (`~/.config/
 **Known limitations**
 
 - More than two simultaneous layouts require explicit `layout1`/`layout2`.
-- Non-systemd distros: the binary works, but session auto-detection and the packaged service do not.
-- With multiple concurrent graphical sessions, the first detected session is used.
+- Non-systemd distros: run the binary from the graphical session and arrange
+  equivalent device ACLs manually.
+- Fast user switching does not revoke input file descriptors already opened by
+  another logged-in user; log out inactive users when strict isolation matters.
 
 ## License
 

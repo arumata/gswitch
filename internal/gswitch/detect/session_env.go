@@ -665,6 +665,18 @@ func buildEnvOverrides(env *SessionEnv) map[string]string {
 // Returns ErrNotRoot if env is not nil and current process is not running as root.
 // On error, stderr is included in the error message for diagnostics.
 func RunAsSessionUser(env *SessionEnv, name string, args ...string) ([]byte, error) {
+	cmd, err := CommandAsSessionUser(env, name, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return runCmdWithStderr(cmd)
+}
+
+// CommandAsSessionUser builds a command for the active graphical session.
+// A nil env keeps the current identity and environment. A non-nil env requires
+// root because the child process must switch to the session user's credentials.
+func CommandAsSessionUser(env *SessionEnv, name string, args ...string) (*exec.Cmd, error) {
 	cmd := execCommand(name, args...)
 
 	if env != nil {
@@ -687,7 +699,7 @@ func RunAsSessionUser(env *SessionEnv, name string, args ...string) ([]byte, err
 		}
 	}
 
-	return runCmdWithStderr(cmd)
+	return cmd, nil
 }
 
 // runCmdWithStderr runs command and includes stderr in error message for diagnostics.

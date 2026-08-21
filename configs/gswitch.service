@@ -1,85 +1,43 @@
-# gswitch systemd unit file
-# Keyboard layout switcher daemon with text correction
-#
-# This unit runs gswitch as root with security hardening.
-# Root privileges are required for:
-# - Reading from /dev/input/* (keyboard events)
-# - Writing to /dev/uinput (synthetic key events)
+# gswitch systemd user unit
+# The daemon runs as the graphical-session user. Device access is granted to
+# the active local session by configs/70-gswitch.rules via logind uaccess ACLs.
 
 [Unit]
 Description=gswitch - keyboard layout switcher
 Documentation=https://github.com/arumata/gswitch
-Requires=local-fs.target
-After=local-fs.target graphical.target
+PartOf=graphical-session.target
+After=graphical-session.target
 
-# Prevent restart loop: max 3 restarts in 30 seconds
+# Prevent restart loops: at most 3 starts in 30 seconds.
 StartLimitIntervalSec=30
 StartLimitBurst=3
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/gswitch -r
+ExecStart=/usr/bin/gswitch --run
 Restart=on-failure
 RestartSec=3
 
-# X11/Wayland environment for clipboard and layout detection
-# This file should be created by user's session startup script
-# The dash prefix (-) means the service won't fail if file doesn't exist
-# See configs/display.env.example for an example.
-EnvironmentFile=-/etc/gswitch/display.env
-
-# === Security Hardening ===
-# Run as root but with restricted capabilities
-
-# Prevent privilege escalation
+# The process is already unprivileged; these settings reduce what a compromised
+# daemon can reach without hiding X11/Wayland sockets or input device nodes.
 NoNewPrivileges=true
-
-# Filesystem protection
-# strict = entire filesystem read-only except /dev, /proc, /sys
-# We explicitly allow /etc/gswitch via ReadWritePaths
 ProtectSystem=strict
-# /tmp is needed by wl-clipboard (wl-copy stores clipboard content in a
-# temp dir) and by the debug file logger (/tmp/gswitch)
-ReadWritePaths=/etc/gswitch /tmp
-
-# Home directories: read-only access needed for ~/.Xauthority
-# Cannot use ProtectHome=true because gswitch reads X11 auth files from $HOME
 ProtectHome=read-only
-
-# Cannot use PrivateTmp=true because X11 socket is at /tmp/.X11-unix/
-# gswitch needs access to this socket for clipboard and layout operations
+# wl-copy creates a short-lived temporary directory on some distributions
+# (notably Fedora); X11 also needs the host /tmp/.X11-unix socket.
+ReadWritePaths=/tmp
 PrivateTmp=false
-
-# Device access control
-# closed = deny all device access except explicitly allowed
-# Use device class names instead of paths (wildcards unreliable)
-DevicePolicy=closed
-DeviceAllow=char-input rw
-DeviceAllow=/dev/uinput rw
-
-# Protect kernel tunables and modules
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-
-# Protect control groups
-ProtectControlGroups=true
-
-# Restrict realtime scheduling (not needed for gswitch)
-RestrictRealtime=true
-
-# Memory execution protection
+PrivateDevices=false
+# Do not add ProtectKernel*/ProtectControlGroups/ProtectClock here. They imply
+# capability bounding-set changes which older user managers cannot apply; the
+# unprivileged process has no capabilities to begin with.
+RestrictSUIDSGID=true
 MemoryDenyWriteExecute=true
-
-# Restrict address families to only what's needed
-# AF_UNIX for X11 socket, AF_NETLINK for udev
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
-
-# Restrict namespace creation
 RestrictNamespaces=true
-
-# Lock down personality syscall
 LockPersonality=true
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
-WantedBy=graphical.target
+WantedBy=graphical-session.target

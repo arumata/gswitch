@@ -263,7 +263,7 @@ func getDefaultProviders() []Provider {
 
 // getProviderBySource returns a provider for explicit source selection.
 // Returns nil for unknown sources.
-func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // Interface is intentional provider abstraction.
+func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // Provider factory intentionally returns the interface.
 	switch source {
 	case SourceXKB:
 		return &xkbProvider{}
@@ -1040,12 +1040,12 @@ func resolveConfigDirFromOSEnv() string {
 }
 
 // NewXKBProvider creates a new XKB provider instance.
-func NewXKBProvider() Provider { //nolint:ireturn // Interface is intentional provider abstraction.
+func NewXKBProvider() Provider { //nolint:ireturn // Public constructor intentionally returns the provider interface.
 	return &xkbProvider{}
 }
 
 // NewKDEProvider creates a new KDE provider instance.
-func NewKDEProvider() Provider { //nolint:ireturn // Interface is intentional provider abstraction.
+func NewKDEProvider() Provider { //nolint:ireturn // Public constructor intentionally returns the provider interface.
 	return &kdeProvider{}
 }
 
@@ -1247,7 +1247,7 @@ func parseGNOMEAccelerator(accel string) ([]uint16, string, error) {
 }
 
 // NewGNOMEProvider creates a new GNOME provider instance.
-func NewGNOMEProvider() Provider { //nolint:ireturn // Interface is intentional provider abstraction.
+func NewGNOMEProvider() Provider { //nolint:ireturn // Public constructor intentionally returns the provider interface.
 	return &gnomeProvider{}
 }
 
@@ -1398,4 +1398,10 @@ func isGNOME(env *SessionEnv) bool {
 		}
 	}
 	return false
+}
+
+// IsGNOMESession reports whether env (or the current process environment when
+// env is nil) belongs to a GNOME graphical session.
+func IsGNOMESession(env *SessionEnv) bool {
+	return isGNOME(env)
 }

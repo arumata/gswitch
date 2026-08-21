@@ -57,7 +57,7 @@ type SettingsWindow struct {
 func NewSettingsWindow(app *App) (*SettingsWindow, error) {
 	w := &SettingsWindow{
 		app:              app,
-		serviceManager:   NewServiceManager("gswitch"),
+		serviceManager:   NewServiceManager("gswitch.service"),
 		deviceManager:    NewDeviceManager(),
 		deviceCheckboxes: make(map[string]*gtk.CheckButton),
 	}
@@ -1091,7 +1091,7 @@ func (w *SettingsWindow) saveConfig(cfg *TrayConfig) error {
 	}
 
 	// Find gswitch binary
-	gswitchPath, err := findGswitchBinary()
+	gswitchPath, err := findGswitchBinaryForPkexec()
 	if err != nil {
 		return fmt.Errorf("failed to find gswitch: %w", err)
 	}

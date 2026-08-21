@@ -92,7 +92,7 @@ func setBeforeApplyLayoutHookForTest(hook func()) func() {
 func NewTray(app *App) *Tray {
 	return &Tray{
 		app:            app,
-		serviceManager: NewServiceManager("gswitch"),
+		serviceManager: NewServiceManager("gswitch.service"),
 		stopChan:       make(chan struct{}),
 		serviceOps:     make(chan serviceRequest, 8),
 		uiOps:          make(chan func(), 64),

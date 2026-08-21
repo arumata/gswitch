@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os/exec"
+
 	cfg "github.com/arumata/gswitch/internal/gswitch/config"
 	"github.com/arumata/gswitch/internal/gswitch/detect"
 )
@@ -23,6 +25,10 @@ func GetActiveSessionEnv() (*SessionEnv, error) {
 
 func ApplySessionEnv(env *SessionEnv) error {
 	return detect.ApplySessionEnv(env)
+}
+
+func CommandAsSessionUser(env *SessionEnv, name string, args ...string) (*exec.Cmd, error) {
+	return detect.CommandAsSessionUser(env, name, args...)
 }
 
 func DetectLayoutSwitchKeys(opts *DetectionOptions) (*DetectionResult, error) {

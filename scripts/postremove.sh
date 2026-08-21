@@ -15,9 +15,23 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
 fi
 
+if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    loginctl list-users --no-legend 2>/dev/null | while read -r uid user _; do
+        runtime_dir="/run/user/$uid"
+        if [ -S "$runtime_dir/bus" ]; then
+            runuser -u "$user" -- env \
+                XDG_RUNTIME_DIR="$runtime_dir" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
+                systemctl --user daemon-reload 2>/dev/null || true
+        fi
+    done
+fi
+
 # Reload udev rules after rules file removal
 if command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=misc --action=change || true
+    udevadm trigger --subsystem-match=input --action=change || true
 fi
 
 # Update GTK icon cache after icon removal

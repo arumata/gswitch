@@ -38,8 +38,6 @@ func Execute(args []string, buildVersion string) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case "--systemctl":
-		runSystemctlProxy(args[2:])
 	case "-v", "--version":
 		fmt.Printf("gswitch version %s\n", version)
 	case "--test-session-env":
@@ -97,7 +95,6 @@ func runHelp(version string) {
 	fmt.Println("   -r,   --run                run")
 	fmt.Println("   -d,   --debug              run in a debug mode")
 	fmt.Println("         --write-config       write config (intended for pkexec)")
-	fmt.Println("         --systemctl          manage gswitch.service (intended for pkexec)")
 	fmt.Println("   -v,   --version            show version")
 	fmt.Println("   -h,   --help               show this help")
 	fmt.Println()

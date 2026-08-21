@@ -22,8 +22,21 @@ esac
 
 # Stop/disable only on real removal to avoid changing enablement on upgrades.
 if [ "$is_real_removal" = "true" ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl stop gswitch 2>/dev/null || true
-    systemctl disable gswitch 2>/dev/null || true
+    # Legacy system unit, if this installation predates the non-root model.
+    systemctl disable --now gswitch.service 2>/dev/null || true
+
+    # Installed user units in active user managers.
+    if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+        loginctl list-users --no-legend 2>/dev/null | while read -r uid user _; do
+            runtime_dir="/run/user/$uid"
+            if [ -S "$runtime_dir/bus" ]; then
+                runuser -u "$user" -- env \
+                    XDG_RUNTIME_DIR="$runtime_dir" \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
+                    systemctl --user disable --now gswitch.service 2>/dev/null || true
+            fi
+        done
+    fi
 fi
 
 exit 0

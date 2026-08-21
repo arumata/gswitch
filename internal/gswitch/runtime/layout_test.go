@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,6 +20,65 @@ func TestStringsToSpecs_NoVariantSplit(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("stringsToSpecs() = %+v, want %+v", got, want)
+	}
+}
+
+func TestGetCurrentLayoutsPrefersActiveDesktop(t *testing.T) {
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	configDir := filepath.Join(tmp, ".config")
+	if err := os.MkdirAll(binDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(configDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "kxkbrc"),
+		[]byte("[Layout]\nLayoutList=us,ru\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gsettings := `#!/bin/sh
+case "$2" in
+  org.gnome.desktop.input-sources) echo "[('xkb', 'us'), ('xkb', 'ua')]" ;;
+  org.freedesktop.ibus.general) echo "@as []" ;;
+  *) exit 1 ;;
+esac
+`
+	gsettingsPath := filepath.Join(binDir, "gsettings")
+	if err := os.WriteFile(gsettingsPath, []byte(gsettings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(gsettingsPath, 0o750); err != nil { //nolint:gosec // Test fixture must be executable.
+		t.Fatal(err)
+	}
+	loginctlPath := filepath.Join(binDir, "loginctl")
+	if err := os.WriteFile(loginctlPath, []byte("#!/bin/sh\nexit 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(loginctlPath, 0o750); err != nil { //nolint:gosec // Test fixture must be executable.
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", tmp)
+	t.Setenv("PATH", binDir)
+
+	tests := []struct {
+		desktop string
+		want    []LayoutSpec
+	}{
+		{desktop: "GNOME", want: []LayoutSpec{{Name: "us"}, {Name: "ua"}}},
+		{desktop: "KDE", want: []LayoutSpec{{Name: "us"}, {Name: "ru"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.desktop, func(t *testing.T) {
+			t.Setenv("XDG_CURRENT_DESKTOP", tt.desktop)
+			got, err := GetCurrentLayouts(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("GetCurrentLayouts() = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }
 

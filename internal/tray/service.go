@@ -18,7 +18,8 @@ const (
 	StatusNotInstalled
 )
 
-// ErrUserCanceled is returned when user cancels pkexec authentication dialog.
+// ErrUserCanceled is retained for UI compatibility with older service
+// managers. User-service actions do not require authentication.
 var ErrUserCanceled = errors.New("authentication canceled by user")
 
 // ServiceManager manages a systemd service.
@@ -44,7 +45,7 @@ func (sm *ServiceManager) GetStatus() (ServiceStatus, error) {
 	}
 
 	// #nosec G204 - serviceName is not user-controlled input
-	cmd := exec.Command("systemctl", "is-active", sm.serviceName)
+	cmd := sm.command("is-active")
 	output, err := cmd.CombinedOutput()
 
 	// systemctl is-active returns non-zero for inactive/failed, so we ignore exit error
@@ -68,7 +69,7 @@ func (sm *ServiceManager) GetStatus() (ServiceStatus, error) {
 
 func (sm *ServiceManager) isInstalled() (bool, error) {
 	// #nosec G204 - serviceName is not user-controlled input
-	cmd := exec.Command("systemctl", "cat", sm.serviceName)
+	cmd := sm.command("cat")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return true, nil
@@ -91,7 +92,7 @@ func isUnitNotFoundOutput(out string) bool {
 // IsEnabled returns true if the service is enabled to start at boot.
 func (sm *ServiceManager) IsEnabled() (bool, error) {
 	// #nosec G204 - serviceName is not user-controlled input
-	cmd := exec.Command("systemctl", "is-enabled", sm.serviceName)
+	cmd := sm.command("is-enabled")
 	output, _ := cmd.Output()
 
 	result := strings.TrimSpace(string(output))
@@ -109,64 +110,49 @@ func (sm *ServiceManager) IsEnabled() (bool, error) {
 	}
 }
 
-// Restart restarts the service using pkexec for privilege escalation.
+// Restart restarts the current user's service.
 func (sm *ServiceManager) Restart() error {
-	return sm.runPrivileged("restart")
+	return sm.run("restart")
 }
 
-// Start starts the service using pkexec for privilege escalation.
+// Start starts the current user's service.
 func (sm *ServiceManager) Start() error {
-	return sm.runPrivileged("start")
+	return sm.run("start")
 }
 
-// Stop stops the service using pkexec for privilege escalation.
+// Stop stops the current user's service.
 func (sm *ServiceManager) Stop() error {
-	return sm.runPrivileged("stop")
+	return sm.run("stop")
 }
 
-// Enable enables the service to start at boot using pkexec.
+// Enable enables the service for this user's graphical sessions.
 func (sm *ServiceManager) Enable() error {
-	return sm.runPrivileged("enable")
+	return sm.run("enable")
 }
 
-// Disable disables the service from starting at boot using pkexec.
+// Disable disables the service for this user.
 func (sm *ServiceManager) Disable() error {
-	return sm.runPrivileged("disable")
+	return sm.run("disable")
 }
 
-// runPrivileged runs a systemctl action through gswitch helper with pkexec for privilege escalation.
-func (sm *ServiceManager) runPrivileged(action string) error {
-	gswitchPath, err := findGswitchBinaryForPkexec()
-	if err != nil {
-		return fmt.Errorf("gswitch not found (required for privileged service actions): %w", err)
-	}
-
-	// #nosec G204 - gswitchPath is validated by findGswitchBinaryForPkexec and action is hardcoded by callers
-	cmd := exec.Command("pkexec", gswitchPath, "--systemctl", action)
-	output, err := cmd.CombinedOutput()
+func (sm *ServiceManager) run(action string) error {
+	output, err := sm.command(action).CombinedOutput()
 
 	if err == nil {
 		return nil
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		// pkexec exit code 126 means user canceled authentication
-		if exitErr.ExitCode() == 126 {
-			return ErrUserCanceled
-		}
-		// pkexec exit code 127 means pkexec not found or authorization failed
-		if exitErr.ExitCode() == 127 {
-			return errors.New("authorization failed or pkexec not available")
-		}
-	}
-
-	// Include output in error message for debugging
 	outputStr := strings.TrimSpace(string(output))
 	if outputStr != "" {
-		return errors.New(outputStr)
+		return fmt.Errorf("systemctl --user %s failed: %s", action, outputStr)
 	}
-	return err
+	return fmt.Errorf("systemctl --user %s failed: %w", action, err)
+}
+
+func (sm *ServiceManager) command(action string) *exec.Cmd {
+	// #nosec G204 - serviceName is fixed by the application and action is
+	// selected by internal callers.
+	return exec.Command("systemctl", "--user", action, sm.serviceName)
 }
 
 // String returns a localized string representation of the service status.

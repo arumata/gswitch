@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=gswitch daemon starter
+Comment=Start the gswitch user service for this graphical session
+Exec=/bin/sh -c "systemctl --user is-enabled --quiet gswitch.service && systemctl --user start gswitch.service"
+TryExec=/bin/sh
+Terminal=false
+NoDisplay=true
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Initialization

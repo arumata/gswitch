@@ -1,0 +1,10 @@
+# Give the active local graphical session access to the input interfaces used
+# by gswitch. This file must sort before systemd's 73-seat-late.rules: that rule
+# consumes TAG+="uaccess" and creates per-session ACLs. Users do not need
+# permanent membership in input.
+
+# Physical keyboard event streams (raw keystrokes).
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", TAG+="uaccess"
+
+# Userspace input device creation (synthetic corrected keystrokes).
+SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess"

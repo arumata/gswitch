@@ -36,8 +36,9 @@ in `.golangci.yml`:
 golangci-lint run ./...
 ```
 
-To try your build: `sudo ./gswitch --debug` (root is needed for
-`/dev/input/*`).
+To try your build: `./gswitch --debug`. The active graphical user needs the
+udev/logind ACLs installed by the package for `/dev/input/event*` and
+`/dev/uinput`; do not run development builds as root to bypass missing ACLs.
 
 ## Guidelines
 
@@ -45,8 +46,9 @@ To try your build: `sudo ./gswitch --debug` (root is needed for
 - Prefer table-driven tests with deterministic inputs; tests must not require
   root, `/dev/input`, or a running desktop session.
 - Don't edit generated files (`*_generated.go`) by hand.
-- Treat changes as security-sensitive: gswitch runs privileged and reads raw
-  input. No network code, no persisting of keystrokes — see
+- Treat changes as security-sensitive: gswitch runs as the session user but
+  has privileged raw-input and input-injection access. No network code, no
+  persisting of keystrokes — see
   [SECURITY.md](SECURITY.md).
 
 ## Conduct

@@ -120,6 +120,16 @@ func GetCurrentLayouts(env *SessionEnv) ([]LayoutSpec, error) {
 		// Not root: run commands directly in the current environment
 		env = nil
 	}
+	gnomeSession := detect.IsGNOMESession(env)
+
+	// Desktop configuration files survive switching between installed desktop
+	// environments. Prefer the active desktop's source of truth so a stale
+	// kxkbrc cannot override GNOME input-sources (and vice versa below).
+	if gnomeSession {
+		if layouts, err := getLayoutsFromGnome(env); err == nil && len(layouts) >= 2 {
+			return layouts, nil
+		}
+	}
 
 	// Try fcitx5 first (common on KDE)
 	if layouts, err := getLayoutsFromFcitx5(); err == nil && len(layouts) >= 2 {
@@ -136,9 +146,12 @@ func GetCurrentLayouts(env *SessionEnv) ([]LayoutSpec, error) {
 		return layouts, nil
 	}
 
-	// Try GNOME input-sources (works on both X11 and Wayland)
-	if layouts, err := getLayoutsFromGnome(env); err == nil && len(layouts) >= 2 {
-		return layouts, nil
+	// Try GNOME input-sources as a fallback outside GNOME too (for minimal
+	// sessions where desktop environment variables are unavailable).
+	if !gnomeSession {
+		if layouts, err := getLayoutsFromGnome(env); err == nil && len(layouts) >= 2 {
+			return layouts, nil
+		}
 	}
 
 	// Fallback to setxkbmap

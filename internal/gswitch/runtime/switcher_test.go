@@ -3,7 +3,10 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -181,4 +184,79 @@ func TestSwitcherStopSignalHandlerIdempotent(_ *testing.T) {
 	s.setupSignalHandler()
 	s.stopSignalHandler()
 	s.stopSignalHandler()
+}
+
+func TestPrepareSessionEnvironmentNonRootUsesCurrentEnvironment(t *testing.T) {
+	orig := getActiveSessionEnv
+	defer func() { getActiveSessionEnv = orig }()
+
+	var calls atomic.Int32
+	getActiveSessionEnv = func() (*SessionEnv, error) {
+		calls.Add(1)
+		return testSessionEnv(), nil
+	}
+
+	s := &Switcher{ctx: context.Background(), debug: true}
+	env, err := s.prepareSessionEnvironment(true, false)
+	if err != nil {
+		t.Fatalf("prepareSessionEnvironment() error = %v", err)
+	}
+	if env != nil {
+		t.Fatalf("prepareSessionEnvironment() env = %v, want nil", env)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("GetActiveSessionEnv called %d times, want 0", calls.Load())
+	}
+}
+
+func TestAddDeviceWithRetryEventuallySucceeds(t *testing.T) {
+	var calls atomic.Int32
+	want := &Device{Path: "/dev/input/event-test"}
+	add := func(_ string) (*Device, error) {
+		if calls.Add(1) < 3 {
+			return nil, fmt.Errorf("open device: %w", syscall.EACCES)
+		}
+		return want, nil
+	}
+
+	got, err := addDeviceWithRetry(context.Background(), want.Path, 4, time.Millisecond, add)
+	if err != nil {
+		t.Fatalf("addDeviceWithRetry() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("addDeviceWithRetry() = %v, want %v", got, want)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("add attempts = %d, want 3", calls.Load())
+	}
+}
+
+func TestAddDeviceWithRetryDoesNotRetryPermanentError(t *testing.T) {
+	var calls atomic.Int32
+	wantErr := errors.New("not a keyboard")
+	add := func(_ string) (*Device, error) {
+		calls.Add(1)
+		return nil, wantErr
+	}
+
+	_, err := addDeviceWithRetry(context.Background(), "event-test", 4, time.Millisecond, add)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("addDeviceWithRetry() error = %v, want %v", err, wantErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("add attempts = %d, want 1", calls.Load())
+	}
+}
+
+func TestAddDeviceWithRetryStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	add := func(_ string) (*Device, error) {
+		cancel()
+		return nil, fmt.Errorf("open device: %w", os.ErrNotExist)
+	}
+
+	_, err := addDeviceWithRetry(ctx, "event-test", 4, time.Second, add)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("addDeviceWithRetry() error = %v, want context.Canceled", err)
+	}
 }

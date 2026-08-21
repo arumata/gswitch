@@ -40,7 +40,6 @@ const (
 
 // Paths
 const (
-	SystemdUnitFile = "/lib/systemd/system/gswitch.service"
 	ConfigFile      = "/etc/gswitch/default.conf"
 	InputDevicesDir = "/dev/input/"
 	UinputFile      = "/dev/uinput"
@@ -126,6 +125,10 @@ const (
 	PollingIntervalMs = 5
 	// DeviceSettleMs is the delay after device hotplug before reading
 	DeviceSettleMs = 100
+	// DeviceOpenRetryAttempts covers the short interval between inotify
+	// reporting a new node and udev/logind applying the active user's ACL.
+	DeviceOpenRetryAttempts = 10
+	DeviceOpenRetryDelayMs  = 100
 	// SelectionConversionDelayMs is the initial delay before reading selection
 	SelectionConversionInitDelayMs = 20
 	// ClipboardWriteDelayMs is the delay after writing to clipboard

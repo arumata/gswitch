@@ -63,9 +63,10 @@ archives:
       - LICENSE
       - README.md
       - configs/gswitch.service
-      - configs/90-gswitch.rules
+      - configs/70-gswitch.rules
       - configs/default.conf
       - configs/gswitch-tray.desktop
+      - configs/gswitch-daemon.desktop
       - configs/com.github.arumata.gswitch.policy
 
 # =============================================================================
@@ -113,15 +114,15 @@ nfpms:
         file_info:
           mode: 0755
 
-      # Systemd service unit
+      # Systemd user service unit
       - src: configs/gswitch.service
-        dst: /usr/lib/systemd/system/gswitch.service
+        dst: /usr/lib/systemd/user/gswitch.service
         file_info:
           mode: 0644
 
       # Udev rules for /dev/uinput access
-      - src: configs/90-gswitch.rules
-        dst: /usr/lib/udev/rules.d/90-gswitch.rules
+      - src: configs/70-gswitch.rules
+        dst: /usr/lib/udev/rules.d/70-gswitch.rules
         file_info:
           mode: 0644
 
@@ -147,6 +148,13 @@ nfpms:
       # Autostart desktop entry (XDG autostart)
       - src: configs/gswitch-tray.desktop
         dst: /etc/xdg/autostart/gswitch-tray.desktop
+        file_info:
+          mode: 0644
+
+      # Start the user service after graphical login, including desktops that
+      # do not activate graphical-session.target consistently.
+      - src: configs/gswitch-daemon.desktop
+        dst: /etc/xdg/autostart/gswitch-daemon.desktop
         file_info:
           mode: 0644
 
@@ -204,6 +212,7 @@ nfpms:
 
     # Maintainer scripts (combined from both)
     scripts:
+      preinstall: scripts/preinstall.sh
       postinstall: scripts/postinstall.sh
       preremove: scripts/preremove.sh
       postremove: scripts/postremove.sh
