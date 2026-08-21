@@ -9,7 +9,8 @@ version: "2"
 # RUN SETTINGS
 # ============================================================
 run:
-  timeout: 3m
+  # CGO packages (GTK) take long to load on cold CI caches
+  timeout: 8m
   tests: true
   concurrency: 0
   issues-exit-code: 1
