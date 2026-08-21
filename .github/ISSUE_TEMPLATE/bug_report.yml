@@ -71,5 +71,7 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: Relevant output of `journalctl -u gswitch` or `sudo gswitch --debug`
+      description: >-
+        Relevant output of `journalctl --user -u gswitch.service` or
+        `gswitch --debug`
       render: text

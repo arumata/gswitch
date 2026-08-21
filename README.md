@@ -2,8 +2,6 @@
 
 [![Release](https://img.shields.io/github/v/release/arumata/gswitch)](https://github.com/arumata/gswitch/releases)
 [![CI](https://github.com/arumata/gswitch/actions/workflows/ci.yml/badge.svg)](https://github.com/arumata/gswitch/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/arumata/gswitch)](https://goreportcard.com/report/github.com/arumata/gswitch)
-[![Go Reference](https://pkg.go.dev/badge/github.com/arumata/gswitch.svg)](https://pkg.go.dev/github.com/arumata/gswitch)
 [![Go](https://img.shields.io/github/go-mod/go-version/arumata/gswitch)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -59,10 +57,12 @@ A tool that reads every keystroke deserves scrutiny — here is the full picture
 - **The daemon does not run as root.** udev/logind grants the active local
   session access to keyboard event nodes and `/dev/uinput`. Only installation
   and writing the fixed system config use administrator authorization; service
-  control is `systemctl --user`. Details in [SECURITY.md](SECURITY.md).
+  control is `systemctl --user`. Details in
+  [the security policy](.github/SECURITY.md).
 - **Releases are built by CI from a git tag** with GoReleaser and ship a `checksums.txt`; the full source is here to audit.
 
-Found a vulnerability? See [SECURITY.md](SECURITY.md) for private reporting.
+Found a vulnerability? See [the security policy](.github/SECURITY.md) for
+private reporting.
 
 ## Tested Environments
 
@@ -84,6 +84,8 @@ Requirements: Linux with `uinput`, systemd/logind for packaged device ACLs and
 service mode, and administrator access to install the package. The daemon runs
 as the graphical user. Selection conversion on pure Wayland additionally needs
 `wl-clipboard` (installed automatically where supported).
+
+Prebuilt packages currently target 64-bit x86 Linux (`amd64`/`x86_64`).
 
 ### From packages (recommended)
 

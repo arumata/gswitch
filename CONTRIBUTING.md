@@ -49,7 +49,7 @@ udev/logind ACLs installed by the package for `/dev/input/event*` and
 - Treat changes as security-sensitive: gswitch runs as the session user but
   has privileged raw-input and input-injection access. No network code, no
   persisting of keystrokes — see
-  [SECURITY.md](SECURITY.md).
+  [the security policy](.github/SECURITY.md).
 
 ## Conduct
 
