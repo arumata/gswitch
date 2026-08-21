@@ -90,6 +90,10 @@ linters:
 
   # Linter-specific settings
   settings:
+    gomoddirectives:
+      # Vendored golang.design/x/clipboard with a dlopen("libX11.so.6")
+      # fallback: the unversioned .so needs libx11-dev on end-user systems.
+      replace-local: true
     # ============================================================
     # COMPLEXITY THRESHOLDS
     # ============================================================

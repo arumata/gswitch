@@ -1,0 +1,75 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Environment details matter a lot for gswitch —
+        please fill them in as completely as you can.
+  - type: input
+    id: version
+    attributes:
+      label: gswitch version
+      description: Output of `gswitch --version`
+      placeholder: "0.4.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options:
+        - deb package
+        - rpm package
+        - go install
+        - built from source
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: "Ubuntu 24.04 / Fedora 44 / Arch …"
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment and session type
+      description: DE + X11 or Wayland
+      placeholder: "GNOME 46, Wayland"
+    validations:
+      required: true
+  - type: input
+    id: layouts
+    attributes:
+      label: Keyboard layouts
+      placeholder: "us, ru"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: Contents of `/etc/gswitch/default.conf` (remove device UIDs if you consider them sensitive)
+      render: ini
+  - type: textarea
+    id: detect
+    attributes:
+      label: Layout switch detection
+      description: Output of `gswitch --detect-layout-switch`
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output of `journalctl -u gswitch` or `sudo gswitch --debug`
+      render: text

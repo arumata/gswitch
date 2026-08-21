@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/arumata/gswitch/internal/gswitch/detect"
 )
 
 const xkbSymbolsPath = "/usr/share/X11/xkb/symbols"
@@ -109,15 +111,23 @@ func FormatLayout(spec LayoutSpec) string {
 	return formatLayout(spec)
 }
 
-// GetCurrentLayouts returns the currently configured keyboard layouts
-func GetCurrentLayouts() ([]LayoutSpec, error) {
+// GetCurrentLayouts returns the currently configured keyboard layouts.
+// env (may be nil) is the active graphical session: gsettings-based sources
+// must run as the session user — root cannot reach the user's dconf, and on
+// dbus-broker systems (Fedora) it silently gets schema defaults instead.
+func GetCurrentLayouts(env *SessionEnv) ([]LayoutSpec, error) {
+	if os.Geteuid() != 0 {
+		// Not root: run commands directly in the current environment
+		env = nil
+	}
+
 	// Try fcitx5 first (common on KDE)
 	if layouts, err := getLayoutsFromFcitx5(); err == nil && len(layouts) >= 2 {
 		return layouts, nil
 	}
 
 	// Try ibus
-	if layouts, err := getLayoutsFromIbus(); err == nil && len(layouts) >= 2 {
+	if layouts, err := getLayoutsFromIbus(env); err == nil && len(layouts) >= 2 {
 		return layouts, nil
 	}
 
@@ -126,8 +136,50 @@ func GetCurrentLayouts() ([]LayoutSpec, error) {
 		return layouts, nil
 	}
 
+	// Try GNOME input-sources (works on both X11 and Wayland)
+	if layouts, err := getLayoutsFromGnome(env); err == nil && len(layouts) >= 2 {
+		return layouts, nil
+	}
+
 	// Fallback to setxkbmap
 	return getLayoutsFromXkb()
+}
+
+// getLayoutsFromGnome reads layouts from GNOME's input-sources gsettings key.
+func getLayoutsFromGnome(env *SessionEnv) ([]LayoutSpec, error) {
+	output, err := detect.RunGsettings(env, "get", "org.gnome.desktop.input-sources", "sources")
+	if err != nil {
+		return nil, err
+	}
+
+	layouts := parseGnomeInputSources(strings.TrimSpace(string(output)))
+	if len(layouts) == 0 {
+		return nil, errors.New("no xkb layouts found in GNOME input-sources")
+	}
+	return layouts, nil
+}
+
+// gnomeInputSourceRe matches tuples like ('xkb', 'ru') in the gsettings output.
+var gnomeInputSourceRe = regexp.MustCompile(`\('([a-z]+)',\s*'([^']+)'\)`)
+
+// parseGnomeInputSources parses output like: [('xkb', 'us'), ('xkb', 'ru')]
+// The xkb id encodes a variant after '+': 'us+dvorak'.
+func parseGnomeInputSources(s string) []LayoutSpec {
+	var layouts []LayoutSpec
+	for _, m := range gnomeInputSourceRe.FindAllStringSubmatch(s, -1) {
+		if m[1] != "xkb" {
+			continue
+		}
+		name, variant, _ := strings.Cut(m[2], "+")
+		if name == "" {
+			continue
+		}
+		spec := LayoutSpec{Name: name, Variant: variant}
+		if !containsLayoutSpec(layouts, spec) {
+			layouts = append(layouts, spec)
+		}
+	}
+	return layouts
 }
 
 // getLayoutsFromKxkbrc reads keyboard layouts from KDE's kxkbrc config.
@@ -239,10 +291,9 @@ func getLayoutsFromFcitx5() ([]LayoutSpec, error) {
 	return layouts, nil
 }
 
-func getLayoutsFromIbus() ([]LayoutSpec, error) {
+func getLayoutsFromIbus(env *SessionEnv) ([]LayoutSpec, error) {
 	// Try to read ibus dconf settings via gsettings
-	cmd := exec.Command("gsettings", "get", "org.freedesktop.ibus.general", "preload-engines")
-	output, err := cmd.Output()
+	output, err := detect.RunGsettings(env, "get", "org.freedesktop.ibus.general", "preload-engines")
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +396,9 @@ func loadLayoutWithVisited(name, variant string, visited map[string]bool) (*Layo
 		KeyMap:  make(map[string][]rune),
 	}
 
-	// If no variant specified, use default
+	// If no variant specified, use the file's default section (marked with the
+	// "default" flag, e.g. ua's "unicode"), with "basic" as the fallback name.
+	wantDefault := variant == ""
 	if variant == "" {
 		variant = "basic"
 	}
@@ -355,15 +408,21 @@ func loadLayoutWithVisited(name, variant string, visited map[string]bool) (*Layo
 	inSection := false
 	targetSection := variant
 	braceCount := 0
+	pendingDefault := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
+		// The "default" flag may sit on its own line above xkb_symbols
+		if !inSection && strings.HasPrefix(line, "default") {
+			pendingDefault = true
+		}
+
 		// Check for section start
 		if matches := sectionRegex.FindStringSubmatch(line); matches != nil {
-			sectionName := matches[1]
-			if sectionName == targetSection || (targetSection == "basic" && sectionName == "default") ||
-				(name == "ru" && targetSection == "basic" && sectionName == "winkeys") {
+			isDefault := pendingDefault || strings.HasPrefix(line, "default")
+			pendingDefault = false
+			if sectionMatches(matches[1], targetSection, wantDefault && isDefault) {
 				inSection = true
 				braceCount = 0
 			}
@@ -413,6 +472,13 @@ func loadLayoutWithVisited(name, variant string, visited map[string]bool) (*Layo
 	}
 
 	return layout, nil
+}
+
+// sectionMatches reports whether an xkb_symbols section should be parsed for
+// the requested variant. defaultWanted is true when no variant was requested
+// and this section carries the file's "default" flag.
+func sectionMatches(sectionName, targetSection string, defaultWanted bool) bool {
+	return sectionName == targetSection || defaultWanted
 }
 
 // NewLayoutConverter creates a converter between two layouts

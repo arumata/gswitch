@@ -2,7 +2,9 @@ package tray
 
 import (
 	"bufio"
+	"errors"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -51,12 +53,16 @@ func (m *LayoutMonitor) Start() error {
 	// Load initial layouts list
 	layouts, err := m.loadLayouts()
 	if err != nil {
-		// Fallback to setxkbmap if KDE DBus fails
+		// Fallback to GNOME input-sources if KDE DBus fails
+		layouts, err = m.loadLayoutsFromGnome()
+	}
+	if err != nil {
+		// Fallback to setxkbmap
 		layouts, err = m.loadLayoutsFromSetxkbmap()
-		if err != nil {
-			// Last resort fallback
-			layouts = []LayoutInfo{{ShortCode: "??", LongName: "Unknown"}}
-		}
+	}
+	if err != nil {
+		// Last resort fallback
+		layouts = []LayoutInfo{{ShortCode: "??", LongName: "Unknown"}}
 	}
 
 	m.mu.Lock()
@@ -123,6 +129,13 @@ func (m *LayoutMonitor) updateCurrentLayout() {
 				newLayout = m.layouts[index]
 			}
 			m.mu.RUnlock()
+		}
+	}
+
+	// Try GNOME mru-sources if KDE didn't work
+	if newLayout.ShortCode == "" {
+		if layout, ok := m.getLayoutFromGnome(); ok {
+			newLayout = layout
 		}
 	}
 
@@ -249,6 +262,65 @@ func (m *LayoutMonitor) fcitx5GroupSize() int {
 	}
 
 	return parseFcitx5GroupInputMethodCount(string(out))
+}
+
+// loadLayoutsFromGnome loads layouts from GNOME's input-sources gsettings key.
+func (m *LayoutMonitor) loadLayoutsFromGnome() ([]LayoutInfo, error) {
+	out, err := exec.Command("gsettings", "get",
+		"org.gnome.desktop.input-sources", "sources").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	layouts := parseGnomeSources(string(out))
+	if len(layouts) == 0 {
+		return nil, errors.New("no xkb sources in GNOME input-sources")
+	}
+	return layouts, nil
+}
+
+// getLayoutFromGnome returns the current layout from GNOME's mru-sources key
+// (most-recently-used order; the first entry is the active source).
+func (m *LayoutMonitor) getLayoutFromGnome() (LayoutInfo, bool) {
+	out, err := exec.Command("gsettings", "get",
+		"org.gnome.desktop.input-sources", "mru-sources").Output()
+	if err != nil {
+		return LayoutInfo{}, false
+	}
+
+	layouts := parseGnomeSources(string(out))
+	if len(layouts) == 0 {
+		// mru-sources is empty until the first switch; fall back to sources
+		layouts, err = m.loadLayoutsFromGnome()
+		if err != nil {
+			return LayoutInfo{}, false
+		}
+	}
+	return layouts[0], true
+}
+
+// gnomeSourceRe matches tuples like ('xkb', 'ru') in gsettings output.
+var gnomeSourceRe = regexp.MustCompile(`\('([a-z]+)',\s*'([^']+)'\)`)
+
+// parseGnomeSources parses gsettings output like: [('xkb', 'us'), ('xkb', 'ru')]
+// The xkb id encodes a variant after '+': 'ua+unicode'.
+func parseGnomeSources(s string) []LayoutInfo {
+	matches := gnomeSourceRe.FindAllStringSubmatch(s, -1)
+	layouts := make([]LayoutInfo, 0, len(matches))
+	for _, match := range matches {
+		if match[1] != "xkb" {
+			continue
+		}
+		name, _, _ := strings.Cut(match[2], "+")
+		if name == "" {
+			continue
+		}
+		layouts = append(layouts, LayoutInfo{
+			ShortCode: strings.ToUpper(name),
+			LongName:  match[2],
+		})
+	}
+	return layouts
 }
 
 // getLayoutFromSetxkbmap returns the first layout from setxkbmap (fallback).

@@ -284,6 +284,10 @@ func buildSessionEnv(session *sessionInfo) (*SessionEnv, error) {
 	// Fill environment from /proc/<Leader>/environ (best-effort)
 	fillSessionEnvFromProcess(env, session.LeaderPID)
 
+	// GDM's session leader is a root-owned gdm-session-worker with a scrubbed
+	// environ; fall back to scanning the user's own session processes.
+	fillSessionEnvFromUserProcesses(env, session)
+
 	// Apply fallbacks for missing values
 	applyFallbacks(env, session)
 
@@ -360,14 +364,23 @@ func fillSessionEnvFromProcess(env *SessionEnv, leaderPID string) {
 		return
 	}
 
-	envPath := fmt.Sprintf("/proc/%s/environ", leaderPID)
-	data, err := os.ReadFile(envPath) //nolint:gosec // reading /proc/<pid>/environ is safe
+	procEnv, err := parseProcEnviron(leaderPID)
 	if err != nil {
-		log.Printf("Warning: failed to read %s: %v, using fallbacks", envPath, err)
+		log.Printf("Warning: failed to read /proc/%s/environ: %v, using fallbacks", leaderPID, err)
 		return
 	}
 
-	// Parse null-separated environment
+	fillSessionEnvFromMap(env, procEnv)
+}
+
+// parseProcEnviron reads and parses /proc/<pid>/environ into a map.
+func parseProcEnviron(pid string) (map[string]string, error) {
+	envPath := fmt.Sprintf("/proc/%s/environ", pid)
+	data, err := os.ReadFile(envPath) //nolint:gosec // reading /proc/<pid>/environ is safe
+	if err != nil {
+		return nil, err
+	}
+
 	procEnv := make(map[string]string)
 	for entry := range bytes.SplitSeq(data, []byte{0}) {
 		if len(entry) == 0 {
@@ -378,8 +391,11 @@ func fillSessionEnvFromProcess(env *SessionEnv, leaderPID string) {
 			procEnv[string(parts[0])] = string(parts[1])
 		}
 	}
+	return procEnv, nil
+}
 
-	// Fill fields from procEnv
+// fillSessionEnvFromMap fills SessionEnv fields from a parsed process environment.
+func fillSessionEnvFromMap(env *SessionEnv, procEnv map[string]string) {
 	if v := procEnv["XDG_RUNTIME_DIR"]; v != "" && env.RuntimeDir == "" {
 		env.RuntimeDir = v
 	}
@@ -416,6 +432,57 @@ func fillSessionEnvFromProcess(env *SessionEnv, leaderPID string) {
 	if v := procEnv["DESKTOP_SESSION"]; v != "" {
 		env.DesktopSession = v
 	}
+}
+
+// fillSessionEnvFromUserProcesses fills missing desktop-environment fields by
+// scanning processes owned by the session user. Needed for GDM, whose session
+// leader (gdm-session-worker) runs as root with an empty environ, so the
+// leader-based fill yields nothing.
+func fillSessionEnvFromUserProcesses(env *SessionEnv, session *sessionInfo) {
+	if env.XDGCurrentDesktop != "" || env.XDGSessionDesktop != "" || env.DesktopSession != "" {
+		return
+	}
+
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		pid := entry.Name()
+		if !entry.IsDir() || pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+		if processUID(pid) != session.UID {
+			continue
+		}
+		procEnv, err := parseProcEnviron(pid)
+		if err != nil {
+			continue
+		}
+		if procEnv["XDG_CURRENT_DESKTOP"] == "" {
+			continue
+		}
+		// Skip processes from other sessions of the same user (e.g. ssh)
+		if sid := procEnv["XDG_SESSION_ID"]; sid != "" && sid != session.ID {
+			continue
+		}
+		fillSessionEnvFromMap(env, procEnv)
+		return
+	}
+}
+
+// processUID returns the real UID owning a /proc/<pid> entry, or ^uint32(0) on error.
+func processUID(pid string) uint32 {
+	info, err := os.Stat("/proc/" + pid)
+	if err != nil {
+		return ^uint32(0)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ^uint32(0)
+	}
+	return stat.Uid
 }
 
 // applyFallbacks fills missing values using fallback methods.

@@ -16,3 +16,5 @@ require (
 	golang.org/x/image v0.28.0 // indirect
 	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
 )
+
+replace golang.design/x/clipboard => ./third_party/clipboard

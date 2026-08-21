@@ -277,8 +277,9 @@ func configureLayouts(reader *bufio.Reader) []LayoutSpec {
 	fmt.Println("Configuring keyboard layouts for text conversion...")
 	fmt.Println()
 
-	// Try to detect current layouts
-	detected, err := gsruntime.GetCurrentLayouts()
+	// Try to detect current layouts (session env matters when run via sudo)
+	sessEnv, _ := gsruntime.GetActiveSessionEnv()
+	detected, err := gsruntime.GetCurrentLayouts(sessEnv)
 	if err != nil {
 		fmt.Printf("Could not auto-detect layouts: %v\n", err)
 		fmt.Println("You need to specify layouts manually.")

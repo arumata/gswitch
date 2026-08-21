@@ -222,3 +222,51 @@ func TestParseKxkbrcLayouts(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGnomeInputSources(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []LayoutSpec
+	}{
+		{
+			name:    "plain two layouts",
+			content: "[('xkb', 'us'), ('xkb', 'ru')]",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "ru"}},
+		},
+		{
+			name:    "variant encoded with plus",
+			content: "[('xkb', 'us'), ('xkb', 'ua+unicode')]",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "ua", Variant: "unicode"}},
+		},
+		{
+			name:    "ibus engines skipped",
+			content: "[('ibus', 'mozc-jp'), ('xkb', 'us'), ('xkb', 'de')]",
+			want:    []LayoutSpec{{Name: "us"}, {Name: "de"}},
+		},
+		{
+			name:    "duplicates removed",
+			content: "[('xkb', 'us'), ('xkb', 'us')]",
+			want:    []LayoutSpec{{Name: "us"}},
+		},
+		{
+			name:    "empty",
+			content: "@a(ss) []",
+			want:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseGnomeInputSources(tt.content)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseGnomeInputSources() = %+v, want %+v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("layout[%d] = %+v, want %+v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

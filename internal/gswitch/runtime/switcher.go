@@ -32,6 +32,7 @@ type Switcher struct {
 	converter     *Converter
 
 	stopAndExit atomic.Bool
+	sessionEnv  *SessionEnv // env of the active graphical session (may be nil)
 	debug       bool
 	logger      *syslog.Writer
 	fileLogger  *FileLogger // file logger for debug mode
@@ -143,6 +144,7 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 	}
 
 	// Apply session environment before X11/Wayland setup
+	s.sessionEnv = env
 	if env != nil {
 		if err := ApplySessionEnv(env); err != nil {
 			s.log("Warning: failed to apply session env: %v", err)
@@ -245,7 +247,7 @@ func (s *Switcher) resolveLayouts() ([]LayoutSpec, error) {
 	}
 
 	// Auto-detect
-	layouts, err := GetCurrentLayouts()
+	layouts, err := GetCurrentLayouts(s.sessionEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get layouts: %w", err)
 	}
@@ -657,13 +659,20 @@ func (s *Switcher) performConversion(action Action) {
 	}
 	time.Sleep(time.Duration(s.config.Delay) * time.Millisecond)
 
-	for _, ev := range events {
+	// The DE applies the layout switch asynchronously (GNOME routes it through
+	// the shell/ibus) and key events arriving mid-switch get dropped, so pause
+	// right after the switch keys before emitting backspaces and the replay.
+	switchEvents := len(s.converter.LSKeys) * 2
+	for i, ev := range events {
 		if err := s.vKeyboard.EmitKey(ev.Code, ev.Value); err != nil {
 			s.logError("failed to emit key: %v", err)
 			return
 		}
 		s.logDebug("output %s %s", getKeyName(ev.Code), getKeyAction(ev.Value))
 		time.Sleep(time.Duration(s.config.Delay) * time.Millisecond)
+		if i == switchEvents-1 {
+			time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
+		}
 	}
 
 	time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)

@@ -7,9 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
-	"syscall"
-	"unsafe"
 )
 
 // KeyboardDevice represents a keyboard input device.
@@ -20,67 +19,54 @@ type KeyboardDevice struct {
 }
 
 // DeviceManager manages input devices for the GUI.
-type DeviceManager struct{}
+// Devices are enumerated via sysfs, which is world-readable — no root or
+// input group membership is required, unlike opening /dev/input nodes.
+type DeviceManager struct {
+	sysDir string // sysfs input class directory (overridable in tests)
+}
 
 // NewDeviceManager creates a new device manager.
 func NewDeviceManager() *DeviceManager {
-	return &DeviceManager{}
+	return &DeviceManager{sysDir: sysClassInputDir}
 }
 
-// ioctl constants for evdev
 const (
-	ioctlEVIOCGID         = 0x80084502          // EVIOCGID - get device ID
-	ioctlEVIOCGNAME       = 0x81004506          // EVIOCGNAME - get device name (size 256)
-	ioctlEVIOCGBIT_EV     = 0x80044520          // EVIOCGBIT(0, 4) - get event type bits
-	ioctlEVIOCGBIT_EV_KEY = 0x80604521          // EVIOCGBIT(EV_KEY, 96)
-	evKEY                 = 0x01                // EV_KEY event type
-	maxDeviceNameLength   = 256                 // Max device name length
-	keyBitsSize           = 96                  // Key capability bitmap size
-	inputDevicesDir       = "/dev/input/"       // Input devices directory
-	sysClassInputDir      = "/sys/class/input/" // Sysfs input class directory
+	evKEY            = 0x01                // EV_KEY event type bit
+	keyA             = 30                  // KEY_A code (basic keyboard test)
+	inputDevicesDir  = "/dev/input/"       // Input devices directory
+	sysClassInputDir = "/sys/class/input/" // Sysfs input class directory
 
 	// gswitch virtual keyboard identifiers (from uinput.go)
 	gswitchVendorID  = 0x0777
 	gswitchProductID = 0x0777
 )
 
-// inputID structure from linux/input.h
-type inputID struct {
-	Bustype uint16
-	Vendor  uint16
-	Product uint16
-	Version uint16
-}
-
 // ErrNoAccess indicates permission denied when accessing devices.
 var ErrNoAccess = errors.New("no access to input devices")
 
+// ErrVirtualKeyboard indicates this is the gswitch virtual keyboard.
+var ErrVirtualKeyboard = errors.New("gswitch virtual keyboard")
+
 // GetKeyboards returns a list of connected keyboard devices.
 func (m *DeviceManager) GetKeyboards() ([]KeyboardDevice, error) {
-	entries, err := os.ReadDir(inputDevicesDir)
+	entries, err := os.ReadDir(m.sysDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", inputDevicesDir, err)
+		if os.IsPermission(err) {
+			return nil, ErrNoAccess
+		}
+		return nil, fmt.Errorf("failed to read %s: %w", m.sysDir, err)
 	}
 
 	// Use map to deduplicate by UID (same device can have multiple event nodes)
 	keyboardsByUID := make(map[string]KeyboardDevice)
-	permissionDenied := 0
-	eventDevices := 0
 
 	for _, entry := range entries {
-		// Skip directories and non-event files
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "event") {
+		if !strings.HasPrefix(entry.Name(), "event") {
 			continue
 		}
 
-		eventDevices++
-		path := filepath.Join(inputDevicesDir, entry.Name())
-		device, err := m.probeDevice(path)
+		device, err := m.probeSysfsDevice(entry.Name())
 		if err != nil {
-			// Track permission errors separately
-			if os.IsPermission(err) {
-				permissionDenied++
-			}
 			continue
 		}
 
@@ -88,11 +74,6 @@ func (m *DeviceManager) GetKeyboards() ([]KeyboardDevice, error) {
 		if _, exists := keyboardsByUID[device.UID]; !exists {
 			keyboardsByUID[device.UID] = *device
 		}
-	}
-
-	// If we found event devices but couldn't open any due to permissions
-	if len(keyboardsByUID) == 0 && permissionDenied > 0 && permissionDenied == eventDevices {
-		return nil, ErrNoAccess
 	}
 
 	// Convert map to slice
@@ -109,135 +90,93 @@ func (m *DeviceManager) GetKeyboards() ([]KeyboardDevice, error) {
 	return keyboards, nil
 }
 
-// ErrVirtualKeyboard indicates this is the gswitch virtual keyboard.
-var ErrVirtualKeyboard = errors.New("gswitch virtual keyboard")
+// probeSysfsDevice reads device information from sysfs and checks if it's a keyboard.
+func (m *DeviceManager) probeSysfsDevice(event string) (*KeyboardDevice, error) {
+	base := filepath.Join(m.sysDir, event, "device")
 
-// probeDevice reads device information and checks if it's a keyboard.
-func (m *DeviceManager) probeDevice(path string) (*KeyboardDevice, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	// Check EV_KEY capability
+	ev, err := readSysfsFile(filepath.Join(base, "capabilities", "ev"))
 	if err != nil {
-		// Wrap syscall.Errno to work with os.IsPermission
-		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+		return nil, err
 	}
-	defer syscall.Close(fd)
-
-	// Check if it has EV_KEY capability
-	if !hasKeyboardCapability(fd) {
+	if !hexBitmapHasBit(ev, evKEY) {
 		return nil, errors.New("not a keyboard: no EV_KEY capability")
 	}
 
-	// Check if it has KEY_A (basic keyboard test)
-	if !hasKeyACapability(fd) {
+	// Check KEY_A capability (basic keyboard test)
+	key, err := readSysfsFile(filepath.Join(base, "capabilities", "key"))
+	if err != nil {
+		return nil, err
+	}
+	if !hexBitmapHasBit(key, keyA) {
 		return nil, errors.New("not a keyboard: no KEY_A capability")
 	}
 
-	// Get device info
-	id, name, err := getDeviceInfo(fd)
+	name, err := readSysfsFile(filepath.Join(base, "name"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device info: %w", err)
+		return nil, err
+	}
+
+	var ids [4]uint16
+	for i, f := range []string{"bustype", "vendor", "product", "version"} {
+		raw, err := readSysfsFile(filepath.Join(base, "id", f))
+		if err != nil {
+			return nil, err
+		}
+		v, err := strconv.ParseUint(raw, 16, 16)
+		if err != nil {
+			return nil, fmt.Errorf("bad id/%s %q: %w", f, raw, err)
+		}
+		ids[i] = uint16(v)
 	}
 
 	// Filter out gswitch's own virtual keyboard
-	if id.Vendor == gswitchVendorID && id.Product == gswitchProductID {
+	if ids[1] == gswitchVendorID && ids[2] == gswitchProductID {
 		return nil, ErrVirtualKeyboard
 	}
 
-	// Generate UID using the same algorithm as in input_reader.go
-	uid := makeDeviceUID(id, name)
-
 	return &KeyboardDevice{
-		UID:  uid,
+		UID:  makeDeviceUID(ids, name),
 		Name: name,
-		Path: path,
+		Path: inputDevicesDir + event,
 	}, nil
 }
 
-// hasKeyboardCapability checks if device supports keyboard events.
-func hasKeyboardCapability(fd int) bool {
-	var evBits uint32
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		uintptr(fd),
-		ioctlEVIOCGBIT_EV,
-		uintptr(unsafe.Pointer(&evBits)),
-	)
-	if errno != 0 {
-		return false
+// readSysfsFile reads a sysfs attribute and trims whitespace.
+func readSysfsFile(path string) (string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // paths are built from sysfs constants
+	if err != nil {
+		return "", err
 	}
-	// Check if EV_KEY bit is set (bit 1)
-	return evBits&(1<<evKEY) != 0
+	return strings.TrimSpace(string(data)), nil
 }
 
-// hasKeyACapability checks if device has KEY_A (basic keyboard test).
-func hasKeyACapability(fd int) bool {
-	keyBits := make([]byte, keyBitsSize)
-
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		uintptr(fd),
-		ioctlEVIOCGBIT_EV_KEY,
-		uintptr(unsafe.Pointer(&keyBits[0])),
-	)
-	if errno != 0 {
+// hexBitmapHasBit checks a bit in a sysfs capability bitmap.
+// The bitmap is space-separated 64-bit hex words, most significant first:
+// the LAST word holds bits 0..63.
+func hexBitmapHasBit(bitmap string, bit int) bool {
+	words := strings.Fields(bitmap)
+	if len(words) == 0 {
 		return false
 	}
-
-	// Check for KEY_A (30) - byte 3, bit 6
-	keyA := 30
-	byteIndex := keyA / 8
-	bitIndex := keyA % 8
-	return keyBits[byteIndex]&(1<<bitIndex) != 0
-}
-
-// getDeviceInfo reads device information using ioctl.
-func getDeviceInfo(fd int) (inputID, string, error) {
-	var id inputID
-
-	// Get device ID
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		uintptr(fd),
-		ioctlEVIOCGID,
-		uintptr(unsafe.Pointer(&id)),
-	)
-	if errno != 0 {
-		return id, "", fmt.Errorf("EVIOCGID failed: %w", errno)
+	wordIdx := bit / 64
+	if wordIdx >= len(words) {
+		return false
 	}
-
-	// Get device name
-	nameBuf := make([]byte, maxDeviceNameLength)
-	_, _, errno = syscall.Syscall(
-		syscall.SYS_IOCTL,
-		uintptr(fd),
-		ioctlEVIOCGNAME,
-		uintptr(unsafe.Pointer(&nameBuf[0])),
-	)
-	if errno != 0 {
-		return id, "", fmt.Errorf("EVIOCGNAME failed: %w", errno)
+	word, err := strconv.ParseUint(words[len(words)-1-wordIdx], 16, 64)
+	if err != nil {
+		return false
 	}
-
-	// Find null terminator
-	name := ""
-	for i, b := range nameBuf {
-		if b == 0 {
-			name = string(nameBuf[:i])
-			break
-		}
-	}
-	if name == "" {
-		name = string(nameBuf)
-	}
-
-	return id, name, nil
+	return word&(1<<(bit%64)) != 0
 }
 
 // makeDeviceUID creates a unique identifier for a device.
 // This matches the algorithm in input_reader.go.
-func makeDeviceUID(id inputID, name string) string {
+func makeDeviceUID(ids [4]uint16, name string) string {
 	h := fnv.New64a()
 	h.Write([]byte(name))
 	hash := h.Sum64()
 
 	return fmt.Sprintf("%04x:%04x:%04x:%04x:%016x",
-		id.Bustype, id.Vendor, id.Product, id.Version, hash)
+		ids[0], ids[1], ids[2], ids[3], hash)
 }
