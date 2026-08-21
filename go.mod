@@ -7,7 +7,7 @@ require (
 	github.com/gotk3/gotk3 v0.6.5-0.20251124190141-e7a9e823ca35
 	github.com/jezek/xgb v1.2.0
 	golang.design/x/clipboard v0.7.1
-	golang.org/x/sys v0.33.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
