@@ -159,7 +159,7 @@ settings window (trigger key capture, delays, service start/stop). It controls
 the daemon through `systemctl --user`; polkit is used only when writing the
 system config.
 
-<img src="assets/tray-settings.png" width="400" alt="gswitch tray settings window">
+<img src="assets/tray-settings.png" width="400" alt="gswitch settings with US and Spanish layouts">
 
 To disable its autostart, create `~/.config/autostart/gswitch-tray.desktop` containing:
 
