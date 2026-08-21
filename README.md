@@ -15,6 +15,7 @@ You typed a word, but the wrong layout was active:
 |---|---|---|
 | `ghbdtn` | `привет` | English ↔ Russian |
 | `yeit` | `zeit` | English ↔ German (QWERTZ) |
+| `;qdq;e` | `madame` | English ↔ French (AZERTY) |
 | `ma;ana` | `mañana` | English ↔ Spanish |
 
 Double-tap <kbd>Shift</kbd> — gswitch erases the word, switches the layout, and retypes it correctly. No mouse, no retyping, no per-app plugins.
