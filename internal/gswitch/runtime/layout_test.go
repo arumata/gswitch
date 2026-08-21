@@ -60,6 +60,7 @@ esac
 	}
 	t.Setenv("HOME", tmp)
 	t.Setenv("PATH", binDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	// Hosted runners may inherit desktop variables (Ubuntu runners commonly
 	// advertise GNOME). Keep the fixture hermetic so each subtest's
 	// XDG_CURRENT_DESKTOP is the only active desktop signal.
