@@ -118,12 +118,14 @@ func (cb *Clipboard) writeWayland(text string) error {
 		return fmt.Errorf("prepare wl-copy: %w", err)
 	}
 	cmd.Stdin = strings.NewReader(text)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	// wl-copy forks a background owner for the Wayland clipboard. A captured
+	// stderr pipe remains open in that child and makes exec.Cmd.Wait block until
+	// clipboard ownership changes, preventing the subsequent Ctrl+V. Inherit a
+	// real file descriptor so Run only waits for the short-lived parent.
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("wl-copy failed: %w: %s", err, stderr.String())
+		return fmt.Errorf("wl-copy failed: %w", err)
 	}
 	return nil
 }

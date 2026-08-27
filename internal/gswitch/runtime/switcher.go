@@ -815,14 +815,6 @@ func (s *Switcher) convertSelection() {
 
 	// Paste with Ctrl+V
 	s.logDebug("Emitting Ctrl+V")
-	if err := s.vKeyboard.KeyUp(KEY_LEFTCTRL); err != nil {
-		s.logDebug("failed to release left ctrl: %v", err)
-	}
-	if err := s.vKeyboard.KeyUp(KEY_RIGHTCTRL); err != nil {
-		s.logDebug("failed to release right ctrl: %v", err)
-	}
-	time.Sleep(time.Duration(s.config.Delay) * time.Millisecond)
-
 	if err := s.vKeyboard.KeyDown(KEY_LEFTCTRL); err != nil {
 		s.logError("failed to press left ctrl: %v", err)
 		return
