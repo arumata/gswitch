@@ -27,6 +27,13 @@ type App struct {
 	quitOnce sync.Once
 }
 
+var (
+	scheduleGTK = func(fn func()) {
+		glib.IdleAdd(fn)
+	}
+	newSettingsWindow = NewSettingsWindow
+)
+
 // New creates a new App instance.
 func New() *App {
 	return &App{}
@@ -66,14 +73,9 @@ func (a *App) Run() error {
 
 // onTrayReady is called when the tray is initialized and ready.
 func (a *App) onTrayReady() {
-	// Create settings window
-	var err error
-	settingsWindow, err := NewSettingsWindow(a)
-	if err != nil {
-		fmt.Printf("Warning: failed to create settings window: %v\n", err)
-	}
+	a.scheduleSettingsWindowCreation()
+
 	a.mu.Lock()
-	a.settingsWindow = settingsWindow
 	tray := a.tray
 	a.mu.Unlock()
 	if tray == nil {
@@ -116,6 +118,18 @@ func (a *App) onTrayReady() {
 	}
 }
 
+func (a *App) scheduleSettingsWindowCreation() {
+	scheduleGTK(func() {
+		settingsWindow, err := newSettingsWindow(a)
+		if err != nil {
+			fmt.Printf("Warning: failed to create settings window: %v\n", err)
+		}
+		a.mu.Lock()
+		a.settingsWindow = settingsWindow
+		a.mu.Unlock()
+	})
+}
+
 // onLayoutChanged is called when the keyboard layout changes.
 func (a *App) onLayoutChanged(layout LayoutInfo) {
 	a.mu.Lock()
@@ -150,15 +164,17 @@ func (a *App) Quit() {
 
 // OnSettingsClicked is called when Settings menu item is clicked.
 func (a *App) OnSettingsClicked() {
-	a.mu.Lock()
-	settingsWindow := a.settingsWindow
-	a.mu.Unlock()
-	if settingsWindow != nil {
-		// Show() will focus the window if already visible, or show it if hidden
-		settingsWindow.Show()
-	} else {
-		fmt.Println("Settings window not available")
-	}
+	scheduleGTK(func() {
+		a.mu.Lock()
+		settingsWindow := a.settingsWindow
+		a.mu.Unlock()
+		if settingsWindow != nil {
+			// Show() will focus the window if already visible, or show it if hidden
+			settingsWindow.Show()
+		} else {
+			fmt.Println("Settings window not available")
+		}
+	})
 }
 
 // UpdateServiceStatus updates the service status in the tray menu.
@@ -246,7 +262,7 @@ func (a *App) showFirstRunDialogIfNeeded(info DetectionInfo) {
 	}
 
 	// Show dialog on GTK main thread
-	glib.IdleAdd(func() {
+	scheduleGTK(func() {
 		dialog := gtk.MessageDialogNew(
 			nil,
 			gtk.DIALOG_MODAL,
