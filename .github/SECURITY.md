@@ -23,9 +23,11 @@ to stay anonymous).
 
 - **No network access.** The codebase contains no network code; nothing is
   ever transmitted anywhere.
-- **In-memory buffer only.** Buffered keystrokes live only in process memory,
-  are never written to disk or logs, and the buffer is cleared whenever focus
-  can change (mouse clicks, Tab, arrows, Enter, …).
+- **In-memory buffer only.** Buffered keystrokes live only in process memory
+  and the buffer is cleared whenever focus can change (mouse clicks, Tab,
+  arrows, Enter, …). Debug mode writes operational metadata to the foreground
+  terminal only; it does not log key names, buffer contents, or selected or
+  converted text.
 - **No root daemon.** The packaged daemon is a systemd user service. udev and
   systemd-logind grant the active local session ACLs for keyboard event nodes
   and `/dev/uinput`; permanent membership in the global `input` group is not
@@ -37,7 +39,9 @@ to stay anonymous).
   daemon compromise but does not make these interfaces safe for untrusted
   code. ACL removal does not revoke file descriptors that are already open;
   logging out stops the user service, but concurrent-session/fast-user-switch
-  setups require particular care.
+  setups require particular care. Device ACLs are granted to a user ID, so
+  every unsandboxed process running as that user can exercise the same device
+  authority while the ACL is active.
 - **What root is still used for.** Package installation installs binaries,
   the systemd user unit, and udev rules. The tray's only privileged runtime
   entry point is the polkit-gated `--write-config`, which writes the fixed

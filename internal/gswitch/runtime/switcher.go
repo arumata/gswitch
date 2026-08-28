@@ -35,7 +35,6 @@ type Switcher struct {
 	sessionEnv  *SessionEnv // env of the active graphical session (may be nil)
 	debug       bool
 	logger      *syslog.Writer
-	fileLogger  *FileLogger // file logger for debug mode
 	wg          sync.WaitGroup
 
 	ctx    context.Context
@@ -93,18 +92,6 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 		logger:      logger,
 		ctx:         ctx,
 		cancel:      cancel,
-	}
-
-	// Initialize file logger for debug mode
-	if debug {
-		fileLogger, err := NewFileLogger()
-		if err != nil {
-			// Not fatal - continue without file logging
-			fmt.Printf("Warning: file logging disabled: %v\n", err)
-		} else {
-			s.fileLogger = fileLogger
-			fmt.Printf("File logging enabled: %s\n", fileLogger.Path())
-		}
 	}
 
 	s.converter.ConvKey = config.ConvertKey
@@ -331,9 +318,6 @@ func (s *Switcher) log(format string, args ...any) {
 	if s.debug {
 		fmt.Println(msg)
 	}
-	if s.fileLogger != nil {
-		s.fileLogger.Write(LogLevelInfo, format, args...)
-	}
 	if s.logger != nil {
 		s.logger.Info(msg)
 	}
@@ -344,18 +328,12 @@ func (s *Switcher) logDebug(format string, args ...any) {
 		timestamp := time.Now().Format("15:04:05.000")
 		fmt.Printf("%s %s\n", timestamp, fmt.Sprintf(format, args...))
 	}
-	if s.fileLogger != nil {
-		s.fileLogger.Write(LogLevelDebug, format, args...)
-	}
 }
 
 func (s *Switcher) logError(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	if s.debug {
 		fmt.Println("ERROR: " + msg)
-	}
-	if s.fileLogger != nil {
-		s.fileLogger.Write(LogLevelError, format, args...)
 	}
 	if s.logger != nil {
 		s.logger.Err(msg)
@@ -634,7 +612,7 @@ func (s *Switcher) readAllDeviceEvents() {
 }
 
 func (s *Switcher) processKeyEvent(event *InputEvent) {
-	s.logDebug("input %s %s", getKeyName(event.Code), getKeyAction(event.Value))
+	s.logDebug("input event received")
 
 	// Track Ctrl state (ignore autorepeat)
 	if event.Code == KEY_LEFTCTRL || event.Code == KEY_RIGHTCTRL {
@@ -661,7 +639,7 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 
 	// Push to converter buffer
 	if s.converter.Push(event.Code, event.Value) {
-		s.logDebug("Buffer: %s", s.converter.GetBufferDump())
+		s.logDebug("buffer length=%d", s.converter.BufferLen())
 
 		action := s.converter.Process()
 		if action != ActionNone {
@@ -732,7 +710,6 @@ func (s *Switcher) performConversion(action Action) {
 			s.logError("failed to emit key: %v", err)
 			return
 		}
-		s.logDebug("output %s %s", getKeyName(ev.Code), getKeyAction(ev.Value))
 		time.Sleep(time.Duration(s.config.Delay) * time.Millisecond)
 		if i == switchEvents-1 {
 			time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
@@ -741,7 +718,11 @@ func (s *Switcher) performConversion(action Action) {
 
 	time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
 	s.inputReader.Flush()
-	s.logDebug("Buffer after conversion: %s", s.converter.GetBufferDump())
+	s.logDebug("buffer length after conversion=%d", s.converter.BufferLen())
+}
+
+func textDebugSummary(label, text string) string {
+	return fmt.Sprintf("%s length=%d runes", label, len([]rune(text)))
 }
 
 // convertSelection converts selected text via clipboard
@@ -787,7 +768,7 @@ func (s *Switcher) convertSelection() {
 		return
 	}
 
-	s.logDebug("Selected text: %q", text)
+	s.logDebug("%s", textDebugSummary("selected text", text))
 
 	// Convert text
 	isLayout1 := s.layoutConverter.DetectLayout(text)
@@ -800,7 +781,7 @@ func (s *Switcher) convertSelection() {
 		s.logDebug("Converting from %s to %s", s.layoutConverter.Layout2.Name, s.layoutConverter.Layout1.Name)
 	}
 
-	s.logDebug("Converted text: %q", converted)
+	s.logDebug("%s", textDebugSummary("converted text", converted))
 
 	if err := s.clipboard.Write(converted); err != nil {
 		s.logError("failed to write to clipboard: %v", err)
@@ -915,9 +896,6 @@ func (s *Switcher) Close() {
 	s.stopSignalHandler()
 	if s.logger != nil {
 		s.logger.Close()
-	}
-	if s.fileLogger != nil {
-		s.fileLogger.Close()
 	}
 	if s.inputReader != nil {
 		s.inputReader.Close()

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/gotk3/gotk3/glib"
@@ -1072,6 +1073,9 @@ func (w *SettingsWindow) validateConfig(cfg *TrayConfig) error {
 	// Validate convert key (must not be "custom" placeholder)
 	if cfg.ConvertKey == "custom" {
 		return errors.New("select a conversion key or specify a key code")
+	}
+	if _, err := strconv.ParseUint(cfg.ConvertKey, 10, 16); err != nil {
+		return errors.New("conversion key must be one numeric evdev scancode")
 	}
 
 	return nil

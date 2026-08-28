@@ -92,9 +92,11 @@ func LoadConfigFrom(path string) (*Config, error) {
 			cfg.LayoutSwitchKey = layoutKeys
 			cfg.LayoutSwitchAuto = isAuto
 		case "convert-key", "replace-key":
-			if v, err := strconv.ParseUint(value, 10, 16); err == nil {
-				cfg.ConvertKey = uint16(v)
+			convertKey, parseErr := parseConvertKeyStrict(value)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid %s at line %d: %w", key, lineNo, parseErr)
 			}
+			cfg.ConvertKey = convertKey
 		case "reverse-mode":
 			cfg.ReverseMode = strings.EqualFold(value, "true")
 		case "delay":
@@ -261,6 +263,19 @@ func parseLayoutSwitchKeyStrict(value string) ([]uint16, bool, error) {
 	return keys, false, nil
 }
 
+func parseConvertKeyStrict(value string) (uint16, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, errors.New("conversion key is empty")
+	}
+
+	v, err := strconv.ParseUint(trimmed, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf("conversion key must be one numeric evdev scancode, got %q", trimmed)
+	}
+	return uint16(v), nil
+}
+
 // ParseBlacklist parses comma or semicolon-separated list of device UIDs.
 func ParseBlacklist(value string) []string {
 	// Replace semicolons with commas for uniform parsing
@@ -328,9 +343,11 @@ func WriteConfigFromArgsTo(path, args string) error {
 			cfg.LayoutSwitchKey = layoutKeys
 			cfg.LayoutSwitchAuto = isAuto
 		case "convert-key":
-			if v, err := strconv.ParseUint(value, 10, 16); err == nil {
-				cfg.ConvertKey = uint16(v)
+			convertKey, parseErr := parseConvertKeyStrict(value)
+			if parseErr != nil {
+				return fmt.Errorf("invalid convert-key value %q: %w", value, parseErr)
 			}
+			cfg.ConvertKey = convertKey
 		case "delay":
 			if v, err := strconv.Atoi(value); err == nil {
 				cfg.Delay = v

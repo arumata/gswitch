@@ -4,12 +4,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	t.Cleanup(func() { os.Stdout = original })
+
+	fn()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	os.Stdout = original
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+	return string(output)
+}
+
+func TestProcessKeyEventDebugOutputOmitsKeystrokeContent(t *testing.T) {
+	s := &Switcher{
+		config:    &Config{},
+		converter: NewConverter(),
+		debug:     true,
+	}
+	s.converter.SetDebugLogger(s.logDebug)
+
+	output := captureStdout(t, func() {
+		s.processKeyEvent(&InputEvent{Code: testKeyA, Value: K_DOWN})
+	})
+
+	for _, sensitive := range []string{"input A down", "Buffer: A_DOWN"} {
+		if strings.Contains(output, sensitive) {
+			t.Fatalf("debug output exposes keystroke content %q: %q", sensitive, output)
+		}
+	}
+	if !strings.Contains(output, "buffer length=1") {
+		t.Fatalf("debug output = %q, expected non-sensitive buffer length", output)
+	}
+}
+
+func TestTextDebugSummaryOmitsContent(t *testing.T) {
+	secret := "private selected text"
+	got := textDebugSummary("selected text", secret)
+	if strings.Contains(got, secret) {
+		t.Fatalf("textDebugSummary() exposed content: %q", got)
+	}
+	if got != "selected text length=21 runes" {
+		t.Fatalf("textDebugSummary() = %q", got)
+	}
+}
 
 // fastWaitConfig returns a configuration with very short intervals for testing.
 func fastWaitConfig() WaitConfig {

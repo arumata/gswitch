@@ -571,6 +571,24 @@ func TestWriteConfigFromArgsToRejectsInvalidLayoutSwitch(t *testing.T) {
 	}
 }
 
+func TestWriteConfigFromArgsToRejectsInvalidConvertKey(t *testing.T) {
+	tests := []string{"29+42", "not-a-key"}
+	for _, value := range tests {
+		t.Run(value, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "default.conf")
+			args := "layout-switch=auto,convert-key=" + value + ",delay=10,layout-switch-delay=100,layout1=us,layout2=ru"
+
+			err := writeConfigFromArgsTo(configPath, args)
+			if err == nil {
+				t.Fatalf("writeConfigFromArgsTo() expected error for convert-key=%q, got nil", value)
+			}
+			if !strings.Contains(err.Error(), "invalid convert-key value") {
+				t.Fatalf("writeConfigFromArgsTo() error = %v, expected invalid convert-key message", err)
+			}
+		})
+	}
+}
+
 // readFileContent is a helper to read file content for tests
 func readFileContent(path string) (string, error) {
 	data, err := os.ReadFile(filepath.Clean(path))

@@ -263,9 +263,7 @@ func getDefaultProviders() []Provider {
 
 // getProviderBySource returns a provider for explicit source selection.
 // Returns nil for unknown sources.
-//
-//nolint:ireturn // Provider factory intentionally returns the interface.
-func getProviderBySource(source DetectionSource) Provider {
+func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // Factory returns a selected provider.
 	switch source {
 	case SourceXKB:
 		return &xkbProvider{}
@@ -1042,16 +1040,12 @@ func resolveConfigDirFromOSEnv() string {
 }
 
 // NewXKBProvider creates a new XKB provider instance.
-//
-//nolint:ireturn // Public constructor intentionally returns the provider interface.
-func NewXKBProvider() Provider {
+func NewXKBProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
 	return &xkbProvider{}
 }
 
 // NewKDEProvider creates a new KDE provider instance.
-//
-//nolint:ireturn // Public constructor intentionally returns the provider interface.
-func NewKDEProvider() Provider {
+func NewKDEProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
 	return &kdeProvider{}
 }
 
@@ -1253,9 +1247,7 @@ func parseGNOMEAccelerator(accel string) ([]uint16, string, error) {
 }
 
 // NewGNOMEProvider creates a new GNOME provider instance.
-//
-//nolint:ireturn // Public constructor intentionally returns the provider interface.
-func NewGNOMEProvider() Provider {
+func NewGNOMEProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
 	return &gnomeProvider{}
 }
 

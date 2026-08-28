@@ -153,6 +153,7 @@ const (
 	strKeyPickerInstruction         = "Press the desired key or combination..."
 	strKeyPickerScancode            = "Scancode:"
 	strKeyPickerHint                = "For combinations, hold modifiers (Ctrl, Shift, Alt)"
+	strKeyPickerHintConvert         = "Press one key. Key combinations are not supported for text conversion."
 	strKeyPickerCurrentLayoutSwitch = "Current layout switch key:"
 	strKeyPickerCurrentConvertKey   = "Current conversion key:"
 )

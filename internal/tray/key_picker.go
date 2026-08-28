@@ -11,6 +11,17 @@ import (
 	"github.com/gotk3/gotk3/gtk"
 )
 
+const xkbKeycodeOffset uint16 = 8
+
+// gdkHardwareKeycodeToEvdev converts the XKB keycode reported by GDK on
+// X11 and Wayland to the Linux evdev scancode used by gswitch.
+func gdkHardwareKeycodeToEvdev(hardwareKeycode uint16) (uint16, bool) {
+	if hardwareKeycode <= xkbKeycodeOffset {
+		return 0, false
+	}
+	return hardwareKeycode - xkbKeycodeOffset, true
+}
+
 // isModifier checks if scancode is a modifier key.
 // Modifiers: Shift (42, 54), Ctrl (29, 97), Alt (56, 100), Super (125, 126)
 func isModifier(code uint16) bool {
@@ -102,6 +113,20 @@ func keyPickerWarningLabel(context KeyPickerContext) string {
 	}
 }
 
+func keyPickerHint(context KeyPickerContext) string {
+	if context == KeyPickerForConvertKey {
+		return strKeyPickerHintConvert
+	}
+	return strKeyPickerHint
+}
+
+func keySelectionValid(context KeyPickerContext, keyCount int) bool {
+	if keyCount == 0 {
+		return false
+	}
+	return context != KeyPickerForConvertKey || keyCount == 1
+}
+
 // ShowKeyPickerDialog shows a dialog for capturing a key or key combination.
 // context specifies what key is being selected (layout switch or convert key).
 // otherKeyValue is the other key's current value to display as warning (to avoid conflicts).
@@ -154,7 +179,7 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 	scancodeLabel.SetMarkup("<span color='gray'>" + strKeyPickerScancode + " -</span>")
 	box.PackStart(scancodeLabel, false, false, 0)
 
-	hintLabel, err := gtk.LabelNew(strKeyPickerHint)
+	hintLabel, err := gtk.LabelNew(keyPickerHint(context))
 	if err != nil {
 		return KeyPickerResult{}, false
 	}
@@ -196,7 +221,10 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 	// Connect key-press-event
 	dialog.Connect("key-press-event", func(_ *gtk.Dialog, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
-		keycode := keyEvent.HardwareKeyCode()
+		keycode, ok := gdkHardwareKeycodeToEvdev(keyEvent.HardwareKeyCode())
+		if !ok {
+			return true
+		}
 		keyval := keyEvent.KeyVal()
 
 		// Convert keyval to base key name (without modifier influence)
@@ -219,9 +247,9 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 		// Update display with saved combination
 		updateKeyDisplay(keyLabel, scancodeLabel, savedCombination)
 
-		// Enable OK button
+		// Conversion accepts one key only; layout switching also supports combinations.
 		if okButton != nil {
-			okButton.SetSensitive(true)
+			okButton.SetSensitive(keySelectionValid(context, len(savedCombination)))
 		}
 
 		return true // Consume the event
@@ -230,7 +258,10 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 	// Connect key-release-event - remove from currently pressed but keep saved combination
 	dialog.Connect("key-release-event", func(_ *gtk.Dialog, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
-		keycode := keyEvent.HardwareKeyCode()
+		keycode, ok := gdkHardwareKeycodeToEvdev(keyEvent.HardwareKeyCode())
+		if !ok {
+			return true
+		}
 
 		// Remove from currently pressed (but savedCombination stays intact)
 		delete(currentlyPressed, keycode)

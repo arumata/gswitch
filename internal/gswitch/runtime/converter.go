@@ -1,7 +1,5 @@
 package runtime
 
-import "strings"
-
 // Action represents what conversion action to take
 type Action int
 
@@ -428,14 +426,13 @@ func (c *Converter) bufferMatchesPattern(pattern []Pattern) bool {
 
 // trimBuffer removes trailing non-key events, but preserves shift release after a key
 func (c *Converter) trimBuffer() {
-	c.log("buffer before trim: %s", c.GetBufferDump())
+	beforeLen := len(c.buffer)
 
 	for len(c.buffer) > 0 {
 		last := c.buffer[len(c.buffer)-1]
 
 		// Always trim trailing convert-key events (they are a trigger, not text)
 		if c.isConvKey(last.Code) {
-			c.log("trimBuffer: removed %s (convert key)", getKeyName(last.Code))
 			c.buffer = c.buffer[:len(c.buffer)-1]
 			continue
 		}
@@ -453,16 +450,14 @@ func (c *Converter) trimBuffer() {
 				j--
 			}
 			if j >= 0 && c.isKey(c.buffer[j].Code) {
-				c.log("trimBuffer: kept %s_UP (follows key)", getKeyName(last.Code))
 				break
 			}
 		}
 
-		c.log("trimBuffer: removed %s_%s (trailing)", getKeyName(last.Code), getKeyAction(last.Value))
 		c.buffer = c.buffer[:len(c.buffer)-1]
 	}
 
-	c.log("buffer after trim: %s", c.GetBufferDump())
+	c.log("trimBuffer: length %d -> %d", beforeLen, len(c.buffer))
 }
 
 // HasText checks if buffer contains any non-shift keys
@@ -555,26 +550,14 @@ func (c *Converter) Convert(action Action) []KeyEvent {
 	}
 	c.log("convert: backspaces=%d", backspaceCount)
 
-	// Log replay sequence
-	var replayKeys strings.Builder
 	replayCount := 0
 	for i := startIndex; i < len(c.buffer); i++ {
 		if c.isConvKey(c.buffer[i].Code) {
 			continue
 		}
-		if replayKeys.Len() > 0 {
-			replayKeys.WriteString(" ")
-		}
-		if c.isShift(c.buffer[i].Code) {
-			replayKeys.WriteString(getKeyName(c.buffer[i].Code))
-			replayKeys.WriteString("_")
-			replayKeys.WriteString(getKeyAction(c.buffer[i].Value))
-		} else {
-			replayKeys.WriteString(getKeyName(c.buffer[i].Code))
-		}
 		replayCount++
 	}
-	c.log("convert: replay sequence (%d events): %s", replayCount, replayKeys.String())
+	c.log("convert: replay events=%d", replayCount)
 
 	// Replay the buffer
 	shiftDown := make(map[uint16]bool, 2)
@@ -602,7 +585,6 @@ func (c *Converter) Convert(action Action) []KeyEvent {
 		if down {
 			result = append(result, KeyEvent{Code: shiftKey, Value: K_UP})
 			extraShiftReleases++
-			c.log("convert: adding extra shift release for %s", getKeyName(shiftKey))
 		}
 	}
 
@@ -617,37 +599,6 @@ func (c *Converter) GetBuffer() []KeyEvent {
 	buf := make([]KeyEvent, len(c.buffer))
 	copy(buf, c.buffer)
 	return buf
-}
-
-// GetBufferDump returns a string representation of the buffer for debugging
-func (c *Converter) GetBufferDump() string {
-	if len(c.buffer) == 0 {
-		return "(empty)"
-	}
-
-	result := ""
-	var resultSb522 strings.Builder
-	for _, ev := range c.buffer {
-		name := getKeyName(ev.Code)
-		state := ""
-		switch ev.Value {
-		case K_DOWN:
-			state = "DOWN"
-		case K_UP:
-			state = "UP"
-		case K_REPEAT:
-			state = "REPEAT"
-		}
-
-		if c.isShift(ev.Code) || ev.Code == c.ConvKey {
-			resultSb522.WriteString(name + "_" + state + " ")
-		} else {
-			resultSb522.WriteString(name + " ")
-		}
-	}
-	result += resultSb522.String()
-
-	return result
 }
 
 // ClearBuffer clears the key buffer

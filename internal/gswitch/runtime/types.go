@@ -218,16 +218,3 @@ func getKeyName(code uint16) string {
 func GetKeyName(code uint16) string {
 	return getKeyName(code)
 }
-
-func getKeyAction(value int32) string {
-	switch value {
-	case 0:
-		return "up"
-	case 1:
-		return "down"
-	case 2:
-		return "autorepeat"
-	default:
-		return "unknown"
-	}
-}

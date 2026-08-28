@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -397,20 +399,28 @@ func TestConverter_Convert_WordVsAll(t *testing.T) {
 	}
 }
 
-func TestConverter_GetBufferDump(t *testing.T) {
+func TestConverterDebugOutputOmitsBufferContent(t *testing.T) {
 	c := NewConverter()
+	var messages []string
+	c.SetDebugLogger(func(format string, args ...any) {
+		messages = append(messages, fmt.Sprintf(format, args...))
+	})
 
-	// Empty buffer
-	dump := c.GetBufferDump()
-	if dump != "(empty)" {
-		t.Errorf("expected '(empty)' for empty buffer, got '%s'", dump)
-	}
-
-	// With some keys
 	c.Push(testKeyA, K_DOWN)
-	dump = c.GetBufferDump()
-	if dump == "(empty)" {
-		t.Error("buffer dump should not be empty after push")
+	c.Push(testKeyLeftShift, K_DOWN)
+	c.Push(testKeyLeftShift, K_UP)
+	c.Push(testKeyLeftShift, K_DOWN)
+	c.Push(testKeyLeftShift, K_UP)
+	if got := c.Process(); got != ActionConvertWord {
+		t.Fatalf("Process() = %v, want ActionConvertWord", got)
+	}
+	c.Convert(ActionConvertWord)
+
+	output := strings.Join(messages, "\n")
+	for _, sensitive := range []string{"buffer before trim:", "buffer after trim:", "replay sequence (", "A_DOWN"} {
+		if strings.Contains(output, sensitive) {
+			t.Fatalf("converter debug output exposes buffer content %q: %q", sensitive, output)
+		}
 	}
 }
 

@@ -192,3 +192,66 @@ func TestGetKeyNameFromCode(t *testing.T) {
 		})
 	}
 }
+
+func TestKeySelectionValidForContext(t *testing.T) {
+	tests := []struct {
+		name     string
+		context  KeyPickerContext
+		keyCount int
+		want     bool
+	}{
+		{name: "layout single key", context: KeyPickerForLayoutSwitch, keyCount: 1, want: true},
+		{name: "layout combination", context: KeyPickerForLayoutSwitch, keyCount: 2, want: true},
+		{name: "convert single key", context: KeyPickerForConvertKey, keyCount: 1, want: true},
+		{name: "convert combination", context: KeyPickerForConvertKey, keyCount: 2, want: false},
+		{name: "empty selection", context: KeyPickerForConvertKey, keyCount: 0, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := keySelectionValid(tt.context, tt.keyCount); got != tt.want {
+				t.Fatalf("keySelectionValid(%v, %d) = %v, want %v", tt.context, tt.keyCount, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGDKHardwareKeycodeToEvdev(t *testing.T) {
+	tests := []struct {
+		name     string
+		hardware uint16
+		want     uint16
+		wantOK   bool
+	}{
+		{name: "escape", hardware: 9, want: 1, wantOK: true},
+		{name: "left ctrl", hardware: 37, want: 29, wantOK: true},
+		{name: "right alt", hardware: 108, want: 100, wantOK: true},
+		{name: "down arrow", hardware: 116, want: 108, wantOK: true},
+		{name: "below XKB minimum", hardware: 8, wantOK: false},
+		{name: "zero", hardware: 0, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := gdkHardwareKeycodeToEvdev(tt.hardware)
+			if ok != tt.wantOK || got != tt.want {
+				t.Fatalf("gdkHardwareKeycodeToEvdev(%d) = (%d, %v), want (%d, %v)",
+					tt.hardware, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestValidateConfigRejectsConvertKeyCombination(t *testing.T) {
+	w := &SettingsWindow{}
+	cfg := &TrayConfig{
+		LayoutSwitch:      "auto",
+		ConvertKey:        "29+42",
+		Delay:             10,
+		LayoutSwitchDelay: 100,
+	}
+
+	if err := w.validateConfig(cfg); err == nil {
+		t.Fatal("validateConfig() expected error for conversion key combination, got nil")
+	}
+}

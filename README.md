@@ -56,7 +56,7 @@ flowchart LR
 A tool that reads every keystroke deserves scrutiny — here is the full picture:
 
 - **No network code.** gswitch never sends anything anywhere; there is not a single network call in the codebase.
-- **Keystrokes never touch the disk.** The key buffer lives only in process memory, is never logged, and is cleared whenever focus can change (mouse click, <kbd>Tab</kbd>, arrows, <kbd>Enter</kbd>, …).
+- **Keystrokes never touch the disk.** The key buffer lives only in process memory and is cleared whenever focus can change (mouse click, <kbd>Tab</kbd>, arrows, <kbd>Enter</kbd>, …). Debug mode writes operational metadata to the terminal only; it does not log key names, buffer contents, or selected/converted text.
 - **The daemon does not run as root.** udev/logind grants the active local
   session access to keyboard event nodes and `/dev/uinput`. Only installation
   and writing the fixed system config use administrator authorization; service
@@ -127,7 +127,7 @@ go build -o builds/gswitch ./cmd/gswitch
 # 1) Interactive setup (writes /etc/gswitch/default.conf)
 sudo gswitch --configure
 
-# 2) Try it in the foreground with verbose logs
+# 2) Try it in the foreground with verbose terminal diagnostics
 gswitch --debug
 
 # 3) Then run it as a service
@@ -151,7 +151,7 @@ another key.
 ```text
 gswitch --configure                # interactive configuration (-c)
 gswitch --run                      # run in foreground (-r)
-gswitch --debug                    # run with verbose logs (-d)
+gswitch --debug                    # verbose terminal diagnostics, no text content (-d)
 gswitch --version                  # print version (-v)
 gswitch --detect-layout-switch     # detect layout-switch hotkey, JSON output
         [--source=xkb|gnome|kde]   # restrict detection to one provider
@@ -180,7 +180,7 @@ Config file: `/etc/gswitch/default.conf`
 | Parameter | Description | Default |
 |---|---|---|
 | `layout-switch` | Layout-switch key scancode(s): `auto`, single (`125`), or combo (`29+42`) | `auto` |
-| `convert-key` | Correction trigger key; `0` = double-Shift mode | `0` |
+| `convert-key` | One evdev scancode for the correction trigger; `0` = double-Shift mode (combinations are rejected) | `0` |
 | `delay` | Delay between synthetic key events, ms | `10` |
 | `layout-switch-delay` | Extra delay after the layout switch, ms | `100` |
 | `blacklist` | Comma-separated device UIDs to ignore | — |
@@ -198,7 +198,7 @@ layout-switch-delay=100
 Notes:
 
 - `layout-switch=auto` detects your hotkey from XKB options, GNOME keybindings, or KDE settings; run `gswitch --detect-layout-switch` to see what it finds.
-- Use `sudo showkey` to look up scancodes for manual configuration.
+- The tray converts GTK/XKB hardware keycodes to evdev scancodes when capturing keys. For manual configuration, use `sudo showkey` to look up scancodes.
 - With more than two layouts configured in the system, set `layout1`/`layout2` explicitly.
 - Run `gswitch -d` to see device UIDs for `blacklist`.
 
@@ -237,6 +237,8 @@ Layouts for text conversion are detected from, in order: **fcitx5** (`~/.config/
   equivalent device ACLs manually.
 - Fast user switching does not revoke input file descriptors already opened by
   another logged-in user; log out inactive users when strict isolation matters.
+- Device ACLs are granted to a user ID, so every unsandboxed process running as
+  that user can use the same device permissions while the ACL is active.
 
 ## License
 
