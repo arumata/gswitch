@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -459,5 +460,134 @@ func TestConverter_DifferentShiftKeys(t *testing.T) {
 	action := c.Process()
 	if action == ActionConvertWord {
 		t.Error("mixed shift double-tap should not trigger convert")
+	}
+}
+
+func TestConverter_RepeatedTriggerUndoesLastConversion(t *testing.T) {
+	tests := []struct {
+		name    string
+		convKey uint16
+		want    Action
+		trigger []KeyEvent
+	}{
+		{
+			name: "double shift word",
+			want: ActionConvertWord,
+			trigger: []KeyEvent{
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+		},
+		{
+			name: "double shift phrase",
+			want: ActionConvertAll,
+			trigger: []KeyEvent{
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+		},
+		{
+			name:    "custom key word",
+			convKey: testKeyPause,
+			want:    ActionConvertWord,
+			trigger: []KeyEvent{
+				{Code: testKeyPause, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_UP},
+			},
+		},
+		{
+			name:    "custom key phrase",
+			convKey: testKeyPause,
+			want:    ActionConvertAll,
+			trigger: []KeyEvent{
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewConverter()
+			c.ConvKey = tt.convKey
+			c.LSKeys = []uint16{125}
+			c.Push(testKeyA, K_DOWN)
+			c.Push(testKeyB, K_DOWN)
+
+			for _, event := range tt.trigger {
+				c.Push(event.Code, event.Value)
+			}
+			firstAction := c.Process()
+			if firstAction != tt.want {
+				t.Fatalf("first Process() = %v, want %v", firstAction, tt.want)
+			}
+			firstEvents := c.Convert(firstAction)
+			if wasUndo := c.CompleteConversion(firstAction); wasUndo {
+				t.Fatal("first conversion must not be classified as undo")
+			}
+
+			for _, event := range tt.trigger {
+				c.Push(event.Code, event.Value)
+			}
+			secondAction := c.Process()
+			if secondAction != tt.want {
+				t.Fatalf("second Process() = %v, want %v", secondAction, tt.want)
+			}
+			if !c.CanUndo(secondAction) {
+				t.Fatal("same trigger immediately after conversion must be eligible for undo")
+			}
+			secondEvents := c.Convert(secondAction)
+			if !reflect.DeepEqual(secondEvents, firstEvents) {
+				t.Fatalf("undo events differ from conversion events:\nfirst:  %#v\nsecond: %#v", firstEvents, secondEvents)
+			}
+			if wasUndo := c.CompleteConversion(secondAction); !wasUndo {
+				t.Fatal("second conversion must be classified as undo")
+			}
+			if c.CanUndo(secondAction) {
+				t.Fatal("completed undo must consume one-step undo state")
+			}
+		})
+	}
+}
+
+func TestConverter_ContentInputInvalidatesUndo(t *testing.T) {
+	c := NewConverter()
+	c.LSKeys = []uint16{125}
+	c.Push(testKeyA, K_DOWN)
+	c.CompleteConversion(ActionConvertWord)
+
+	if !c.CanUndo(ActionConvertWord) {
+		t.Fatal("completed conversion must arm undo")
+	}
+	c.Push(testKeyB, K_DOWN)
+	if c.CanUndo(ActionConvertWord) {
+		t.Fatal("content input must invalidate undo")
+	}
+}
+
+func TestConverter_Process_DoubleShiftHeld_NoText(t *testing.T) {
+	c := NewConverter()
+
+	for _, event := range []KeyEvent{
+		{Code: testKeyLeftShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_UP},
+		{Code: testKeyRightShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_UP},
+		{Code: testKeyLeftShift, Value: K_UP},
+	} {
+		c.Push(event.Code, event.Value)
+	}
+
+	if got := c.Process(); got != ActionDoubleShiftHeldNoText {
+		t.Fatalf("Process() = %v, want ActionDoubleShiftHeldNoText", got)
 	}
 }

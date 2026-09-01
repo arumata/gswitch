@@ -42,10 +42,10 @@ func (vk *VirtualKeyboard) setupDevice() error {
 		return fmt.Errorf("ioctl UI_SET_EVBIT EV_KEY failed: %w", errno)
 	}
 
-	// Set all key bits (0-248)
-	for i := range 249 {
-		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), UI_SET_KEYBIT, uintptr(i)); errno != 0 {
-			return fmt.Errorf("ioctl UI_SET_KEYBIT %d failed: %w", i, errno)
+	// Set all Linux key bits, including KEY_KEYBOARD/XF86Keyboard.
+	for _, code := range virtualKeyboardKeyCodes() {
+		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), UI_SET_KEYBIT, uintptr(code)); errno != 0 {
+			return fmt.Errorf("ioctl UI_SET_KEYBIT %d failed: %w", code, errno)
 		}
 	}
 
@@ -66,6 +66,14 @@ func (vk *VirtualKeyboard) setupDevice() error {
 	}
 
 	return nil
+}
+
+func virtualKeyboardKeyCodes() []uint16 {
+	codes := make([]uint16, int(KEY_MAX)+1)
+	for code := uint16(0); code <= KEY_MAX; code++ {
+		codes[code] = code
+	}
+	return codes
 }
 
 // Close destroys the virtual keyboard device

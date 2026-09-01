@@ -160,6 +160,29 @@ func (cb *Clipboard) ReadPrimarySelection() (string, error) {
 	return "", errors.New("PRIMARY selection not available")
 }
 
+// ClearPrimarySelection drops the current PRIMARY owner after a successful
+// paste. A subsequent selection of identical text must be treated as new.
+func (cb *Clipboard) ClearPrimarySelection() error {
+	if cb.useWayland {
+		cmd, err := cb.waylandCommand("wl-copy", "--primary", "--clear")
+		if err != nil {
+			return fmt.Errorf("prepare wl-copy --primary --clear: %w", err)
+		}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("wl-copy --primary --clear failed: %w: %s", err, stderr.String())
+		}
+		return nil
+	}
+
+	if cb.x11Selection != nil {
+		return cb.x11Selection.ClearPrimary()
+	}
+
+	return errors.New("PRIMARY selection not available")
+}
+
 func (cb *Clipboard) waylandCommand(name string, args ...string) (*exec.Cmd, error) {
 	return CommandAsSessionUser(cb.sessionEnv, name, args...)
 }

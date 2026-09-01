@@ -1103,16 +1103,16 @@ func TestGetProviderBySource_GNOME(t *testing.T) {
 
 func TestParseGsettingsArray_SuperSpace(t *testing.T) {
 	got := parseGsettingsArray("['<Super>space']")
-	want := "<Super>space"
-	if got != want {
+	want := []string{"<Super>space"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseGsettingsArray() = %q, want %q", got, want)
 	}
 }
 
 func TestParseGsettingsArray_MultipleBindings(t *testing.T) {
-	got := parseGsettingsArray("['<Super>space', '<Alt>Shift_L']")
-	want := "<Super>space" // Should return first element
-	if got != want {
+	got := parseGsettingsArray("['<Super>space', 'XF86Keyboard']")
+	want := []string{"<Super>space", "XF86Keyboard"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseGsettingsArray() = %q, want %q", got, want)
 	}
 }
@@ -1121,25 +1121,73 @@ func TestParseGsettingsArray_Empty(t *testing.T) {
 	tests := []string{"@as []", "[]"}
 	for _, input := range tests {
 		got := parseGsettingsArray(input)
-		if got != "" {
-			t.Fatalf("parseGsettingsArray(%q) = %q, want empty string", input, got)
+		if len(got) != 0 {
+			t.Fatalf("parseGsettingsArray(%q) = %q, want empty slice", input, got)
 		}
 	}
 }
 
 func TestParseGsettingsArray_Disabled(t *testing.T) {
 	got := parseGsettingsArray("['disabled']")
-	want := "disabled"
-	if got != want {
+	want := []string{"disabled"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseGsettingsArray() = %q, want %q", got, want)
 	}
 }
 
 func TestParseGsettingsArray_WithDoubleQuotes(t *testing.T) {
 	got := parseGsettingsArray("[\"<Super>space\"]")
-	want := "<Super>space"
-	if got != want {
+	want := []string{"<Super>space"}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseGsettingsArray() = %q, want %q", got, want)
+	}
+}
+
+func TestSelectGNOMEAccelerator_WaylandPreservesFirstConfiguredBinding(t *testing.T) {
+	got := selectGNOMEAccelerator([]string{"<Super>space", "XF86Keyboard"}, false)
+	if got != "<Super>space" {
+		t.Fatalf("selectGNOMEAccelerator() = %q, want first Wayland binding", got)
+	}
+}
+
+func TestSelectGNOMEAccelerator_X11PreservesFirstConfiguredBinding(t *testing.T) {
+	got := selectGNOMEAccelerator([]string{"<Super>space", "XF86Keyboard"}, false)
+	if got != "<Super>space" {
+		t.Fatalf("selectGNOMEAccelerator() = %q, want first X11 binding", got)
+	}
+}
+
+func TestSelectGNOMEAccelerator_X11PrefersConfiguredLaunch7(t *testing.T) {
+	got := selectGNOMEAccelerator([]string{"<Super>space", "XF86Keyboard", "XF86Launch7"}, true)
+	if got != "XF86Launch7" {
+		t.Fatalf("selectGNOMEAccelerator() = %q, want %q", got, "XF86Launch7")
+	}
+}
+
+func TestSelectGNOMEAccelerator_PreservesFirstCustomBinding(t *testing.T) {
+	got := selectGNOMEAccelerator([]string{"<Alt>Shift_L", "<Super>space"}, true)
+	if got != "<Alt>Shift_L" {
+		t.Fatalf("selectGNOMEAccelerator() = %q, want first custom binding", got)
+	}
+}
+
+func TestGNOMEX11SessionSelection(t *testing.T) {
+	tests := []struct {
+		name string
+		env  *SessionEnv
+		want bool
+	}{
+		{name: "wayland session", env: &SessionEnv{XDGCurrentDesktop: "GNOME", SessionType: "wayland"}},
+		{name: "wayland socket", env: &SessionEnv{XDGCurrentDesktop: "GNOME", WaylandDisplay: "wayland-0"}},
+		{name: "x11 session", env: &SessionEnv{XDGCurrentDesktop: "GNOME", SessionType: "x11", Display: ":0"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGNOMEX11Session(tt.env); got != tt.want {
+				t.Fatalf("isGNOMEX11Session() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1261,6 +1309,36 @@ func TestParseGNOMEAccelerator_CapsLock(t *testing.T) {
 	}
 }
 
+func TestParseGNOMEAccelerator_XF86Keyboard(t *testing.T) {
+	scancodes, keyNames, err := parseGNOMEAccelerator("XF86Keyboard")
+	if err != nil {
+		t.Fatalf("parseGNOMEAccelerator() error = %v", err)
+	}
+
+	wantScancodes := []uint16{374}
+	if !reflect.DeepEqual(scancodes, wantScancodes) {
+		t.Fatalf("parseGNOMEAccelerator() scancodes = %v, want %v", scancodes, wantScancodes)
+	}
+	if keyNames != "Keyboard" {
+		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "Keyboard")
+	}
+}
+
+func TestParseGNOMEAccelerator_XF86Launch7(t *testing.T) {
+	scancodes, keyNames, err := parseGNOMEAccelerator("XF86Launch7")
+	if err != nil {
+		t.Fatalf("parseGNOMEAccelerator() error = %v", err)
+	}
+
+	wantScancodes := []uint16{186}
+	if !reflect.DeepEqual(scancodes, wantScancodes) {
+		t.Fatalf("parseGNOMEAccelerator() scancodes = %v, want %v", scancodes, wantScancodes)
+	}
+	if keyNames != "Launch7" {
+		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "Launch7")
+	}
+}
+
 func TestParseGNOMEAccelerator_AllModifiers(t *testing.T) {
 	tests := []struct {
 		modifier     string
@@ -1304,7 +1382,7 @@ func TestGnomeKeyvalToScancode_MapContents(t *testing.T) {
 	expectedKeys := []string{
 		"Shift_L", "Shift_R", "Control_L", "Control_R",
 		"Alt_L", "Alt_R", "Super_L", "Super_R",
-		"space", "Caps_Lock",
+		"space", "Caps_Lock", "XF86Keyboard", "XF86Launch7",
 	}
 	for _, key := range expectedKeys {
 		if _, ok := gnomeKeyvalToScancode[key]; !ok {

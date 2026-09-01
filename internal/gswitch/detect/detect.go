@@ -129,6 +129,8 @@ var scancodeToKeyName = map[uint16]string{
 	scancodeCapsLock:   "CapsLock",
 	scancodeScrollLock: "ScrollLock",
 	scancodeCompose:    "Menu",
+	scancodeF16:        "Launch7",
+	scancodeKeyboard:   "Keyboard",
 	15:                 "Tab",
 	28:                 "Enter",
 	14:                 "Backspace",
@@ -186,6 +188,8 @@ const (
 	scancodeLeftMeta   uint16 = 125
 	scancodeRightMeta  uint16 = 126
 	scancodeCompose    uint16 = 127 // Menu key
+	scancodeF16        uint16 = 186
+	scancodeKeyboard   uint16 = 374 // KEY_KEYBOARD / XF86Keyboard
 )
 
 // xkbToScancodes maps XKB grp:* options to their corresponding scancodes.
@@ -263,7 +267,7 @@ func getDefaultProviders() []Provider {
 
 // getProviderBySource returns a provider for explicit source selection.
 // Returns nil for unknown sources.
-func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // Factory returns a selected provider.
+func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // runtime-selected provider factory
 	switch source {
 	case SourceXKB:
 		return &xkbProvider{}
@@ -1040,12 +1044,12 @@ func resolveConfigDirFromOSEnv() string {
 }
 
 // NewXKBProvider creates a new XKB provider instance.
-func NewXKBProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
+func NewXKBProvider() Provider { //nolint:ireturn // public provider factory
 	return &xkbProvider{}
 }
 
 // NewKDEProvider creates a new KDE provider instance.
-func NewKDEProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
+func NewKDEProvider() Provider { //nolint:ireturn // public provider factory
 	return &kdeProvider{}
 }
 
@@ -1064,8 +1068,10 @@ var gnomeKeyvalToScancode = map[string]uint16{
 	"Super_L":   scancodeLeftMeta,
 	"Super_R":   scancodeRightMeta,
 	// Special keys
-	"space":     scancodeSpace,
-	"Caps_Lock": scancodeCapsLock,
+	"space":        scancodeSpace,
+	"Caps_Lock":    scancodeCapsLock,
+	"XF86Keyboard": scancodeKeyboard,
+	"XF86Launch7":  scancodeF16,
 }
 
 // gnomeModifierAliases maps GNOME accelerator modifier names to keyval names.
@@ -1123,14 +1129,22 @@ func (p *gnomeProvider) Detect(env *SessionEnv) DetectionAttempt {
 		return attempt
 	}
 
-	// Parse gsettings array output
-	accel := parseGsettingsArray(strings.TrimSpace(string(output)))
+	// GNOME X11 gets a verified persistent single-key accelerator. Other
+	// backends preserve the user's first configured binding.
+	preferInternalX11 := isGNOMEX11Session(env)
+	accel := selectGNOMEAccelerator(
+		parseGsettingsArray(strings.TrimSpace(string(output))),
+		preferInternalX11,
+	)
 	if accel == "" || accel == "disabled" {
 		// Try switch-input-source-backward as fallback
 		output, err = RunGsettings(env, "get",
 			"org.gnome.desktop.wm.keybindings", "switch-input-source-backward")
 		if err == nil {
-			accel = parseGsettingsArray(strings.TrimSpace(string(output)))
+			accel = selectGNOMEAccelerator(
+				parseGsettingsArray(strings.TrimSpace(string(output))),
+				preferInternalX11,
+			)
 		}
 	}
 
@@ -1154,18 +1168,18 @@ func (p *gnomeProvider) Detect(env *SessionEnv) DetectionAttempt {
 	return attempt
 }
 
-// parseGsettingsArray parses gsettings array output and returns the first element.
+// parseGsettingsArray parses every element from gsettings array output.
 // Input formats:
-//   - ['<Super>space'] → "<Super>space"
-//   - ['<Super>space', '<Alt>Shift_L'] → "<Super>space" (first element)
-//   - @as [] → "" (empty)
-//   - ['disabled'] → "disabled"
-func parseGsettingsArray(output string) string {
+//   - ['<Super>space'] → ["<Super>space"]
+//   - ['<Super>space', 'XF86Keyboard'] → ["<Super>space", "XF86Keyboard"]
+//   - @as [] → nil
+//   - ['disabled'] → ["disabled"]
+func parseGsettingsArray(output string) []string {
 	output = strings.TrimSpace(output)
 
 	// Empty array
 	if output == "@as []" || output == "[]" {
-		return ""
+		return nil
 	}
 
 	// Remove brackets and parse
@@ -1174,17 +1188,34 @@ func parseGsettingsArray(output string) string {
 		output = strings.TrimSuffix(output, "]")
 	}
 
-	// Split by comma and take first element
+	// Accelerator values do not contain commas, so gsettings' simple array
+	// representation can be parsed without interpreting arbitrary GVariant.
 	parts := strings.Split(output, ",")
-	if len(parts) == 0 {
+	accelerators := make([]string, 0, len(parts))
+	for _, part := range parts {
+		accel := strings.Trim(strings.TrimSpace(part), "'\"")
+		if accel != "" {
+			accelerators = append(accelerators, accel)
+		}
+	}
+	return accelerators
+}
+
+// selectGNOMEAccelerator prefers the internal X11 accelerator only in the
+// backend that installs and verifies it. Other backends preserve GNOME's first
+// configured accelerator.
+func selectGNOMEAccelerator(accelerators []string, preferInternalX11 bool) string {
+	if preferInternalX11 {
+		for _, accel := range accelerators {
+			if accel == gnomeX11Accelerator {
+				return accel
+			}
+		}
+	}
+	if len(accelerators) == 0 {
 		return ""
 	}
-
-	// Remove quotes and whitespace
-	first := strings.TrimSpace(parts[0])
-	first = strings.Trim(first, "'\"")
-
-	return first
+	return accelerators[0]
 }
 
 // parseGNOMEAccelerator parses GNOME accelerator format and returns scancodes.
@@ -1247,7 +1278,7 @@ func parseGNOMEAccelerator(accel string) ([]uint16, string, error) {
 }
 
 // NewGNOMEProvider creates a new GNOME provider instance.
-func NewGNOMEProvider() Provider { //nolint:ireturn // Public constructor exposes the provider interface.
+func NewGNOMEProvider() Provider { //nolint:ireturn // public provider factory
 	return &gnomeProvider{}
 }
 

@@ -11,6 +11,10 @@ const (
 	// no text. Nothing to convert in the buffer, but the caller may act on
 	// the trigger itself (Ctrl+DoubleShift converts the selection).
 	ActionDoubleShiftNoText
+	// ActionDoubleShiftHeldNoText reports the phrase trigger without buffered
+	// text. The switcher uses it for Ctrl+held-Shift+double-Shift selection
+	// case conversion.
+	ActionDoubleShiftHeldNoText
 )
 
 // KeyEvent represents a key event in the buffer
@@ -44,6 +48,9 @@ type Converter struct {
 
 	buffer   []KeyEvent
 	debugLog DebugLogger
+
+	undoEligible bool
+	lastAction   Action
 }
 
 // NewConverter creates a new Converter
@@ -125,6 +132,7 @@ func (c *Converter) Push(code uint16, value int32) bool {
 	// Handle backspace
 	//nolint:nestif // backspace handling requires checking multiple conditions
 	if c.isBackspace(code) && value != K_UP {
+		c.invalidateUndo()
 		// Remove the most recent text key (ignore shift + convkey triggers)
 		for i := len(c.buffer) - 1; i >= 0; i-- {
 			if !c.isShift(c.buffer[i].Code) && !c.isConvKey(c.buffer[i].Code) {
@@ -166,6 +174,7 @@ func (c *Converter) Push(code uint16, value int32) bool {
 
 	// Handle regular keys (only on key down, ignore repeat)
 	if c.isKey(code) && value == K_DOWN {
+		c.invalidateUndo()
 		c.buffer = append(c.buffer, KeyEvent{Code: code, Value: K_DOWN})
 		return true
 	}
@@ -224,6 +233,13 @@ func (c *Converter) processDoubleShift() Action {
 	if !hasText && c.isDoubleShiftPattern() {
 		c.trimBuffer()
 		return ActionDoubleShiftNoText
+	}
+
+	// 4. Held shift plus double-tap of the other shift without buffered text:
+	// report the distinct trigger so Ctrl can route it to selection case swap.
+	if !hasText && c.isDoubleShiftWithHeldPattern() {
+		c.trimBuffer()
+		return ActionDoubleShiftHeldNoText
 	}
 
 	return ActionNone
@@ -594,6 +610,36 @@ func (c *Converter) Convert(action Action) []KeyEvent {
 	return result
 }
 
+// CanUndo reports whether action is the same conversion that completed most
+// recently and no content input has happened since.
+func (c *Converter) CanUndo(action Action) bool {
+	return c.undoEligible && c.lastAction == action
+}
+
+// CompleteConversion records a successfully emitted conversion. It returns
+// true when the conversion consumed the one-step undo armed by the previous
+// identical action.
+func (c *Converter) CompleteConversion(action Action) bool {
+	if action != ActionConvertWord && action != ActionConvertAll {
+		c.invalidateUndo()
+		return false
+	}
+
+	if c.CanUndo(action) {
+		c.invalidateUndo()
+		return true
+	}
+
+	c.lastAction = action
+	c.undoEligible = true
+	return false
+}
+
+func (c *Converter) invalidateUndo() {
+	c.lastAction = ActionNone
+	c.undoEligible = false
+}
+
 // GetBuffer returns a copy of the current buffer
 func (c *Converter) GetBuffer() []KeyEvent {
 	buf := make([]KeyEvent, len(c.buffer))
@@ -604,6 +650,7 @@ func (c *Converter) GetBuffer() []KeyEvent {
 // ClearBuffer clears the key buffer
 func (c *Converter) ClearBuffer() {
 	c.buffer = c.buffer[:0]
+	c.invalidateUndo()
 }
 
 // BufferLen returns the buffer length

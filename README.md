@@ -25,10 +25,12 @@ It works at the Linux kernel input level: keystrokes are read from `/dev/input` 
 
 ## Features
 
-- **Three correction modes**
+- **Correction modes**
   - *Last word* — double-tap <kbd>Shift</kbd> by default
   - *Whole phrase* (everything since the last <kbd>Enter</kbd>) — hold one <kbd>Shift</kbd>, double-tap the other
-  - *Selected text* — select text anywhere, press <kbd>Ctrl</kbd> + double-<kbd>Shift</kbd>
+  - *Selected text layout* — select text anywhere, press <kbd>Ctrl</kbd> + double-<kbd>Shift</kbd>
+  - *Selected text case* — hold <kbd>Ctrl</kbd> and one <kbd>Shift</kbd>, then double-tap the other <kbd>Shift</kbd>
+- **One-step undo** — repeat the same correction trigger immediately to restore the original text and layout; subsequent text input cancels undo
 - **System-wide** — operates below the display server; any app, X11 or Wayland
 - **Any layout pair** — 1600+ keysym mappings (Latin, Cyrillic, Greek, Arabic, Hebrew, Thai, …); tested with Russian, Ukrainian, German (QWERTZ), French (AZERTY), and Spanish
 - **Zero-config by default** — auto-detects your keyboards, your layouts, and your layout-switch hotkey from system settings (GNOME, KDE, fcitx5, ibus, XKB)
@@ -49,7 +51,7 @@ flowchart LR
 
 1. gswitch silently buffers your keystrokes (buffer is reset on focus-changing keys: <kbd>Tab</kbd>, arrows, mouse clicks, …).
 2. When it sees a trigger, it emits backspaces to erase the mistyped text, presses your layout-switch hotkey, and replays the buffered keys — now in the correct layout.
-3. For selected text, it reads the selection, converts characters using your system's XKB layout tables, and pastes the result.
+3. For selected text, it either converts characters using your system's XKB layout tables or swaps letter case, then pastes the result.
 
 ## Security & Privacy
 
@@ -145,6 +147,8 @@ another key.
 | Fix last word | Double-<kbd>Shift</kbd> | <kbd>ConvertKey</kbd> |
 | Fix whole phrase | Hold <kbd>Shift</kbd> + double-tap other <kbd>Shift</kbd> | <kbd>Shift</kbd>+<kbd>ConvertKey</kbd> |
 | Convert selection | <kbd>Ctrl</kbd> + double-<kbd>Shift</kbd> | <kbd>Ctrl</kbd>+<kbd>ConvertKey</kbd> |
+| Swap selection case | Hold <kbd>Ctrl</kbd> and one <kbd>Shift</kbd> + double-tap other <kbd>Shift</kbd> | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>ConvertKey</kbd> |
+| Undo last correction | Repeat the same trigger immediately | Repeat the same trigger immediately |
 
 ### CLI
 
@@ -198,6 +202,7 @@ layout-switch-delay=100
 Notes:
 
 - `layout-switch=auto` detects your hotkey from XKB options, GNOME keybindings, or KDE settings; run `gswitch --detect-layout-switch` to see what it finds.
+- On GNOME X11, auto mode keeps your existing layout-switch shortcuts and adds `XF86Launch7` as a persistent internal accelerator. gswitch emits its standard X11 key slot (`KEY_F16`) instead of replaying an unreliable modifier shortcut such as `Super+Space`.
 - The tray converts GTK/XKB hardware keycodes to evdev scancodes when capturing keys. For manual configuration, use `sudo showkey` to look up scancodes.
 - With more than two layouts configured in the system, set `layout1`/`layout2` explicitly.
 - Run `gswitch -d` to see device UIDs for `blacklist`.

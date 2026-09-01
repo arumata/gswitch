@@ -73,6 +73,149 @@ func TestTextDebugSummaryOmitsContent(t *testing.T) {
 	}
 }
 
+func TestSwapCase(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "latin", text: "Hello, WORLD! 123", want: "hELLO, world! 123"},
+		{name: "cyrillic", text: "Привет, МИР! ёЖ", want: "пРИВЕТ, мир! Ёж"},
+		{name: "symbols", text: "123 — +_", want: "123 — +_"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := swapCase(tt.text); got != tt.want {
+				t.Fatalf("swapCase(%q) = %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
+	tests := []struct {
+		name    string
+		convKey uint16
+		events  []InputEvent
+		want    selectionTransform
+	}{
+		{
+			name:    "custom key layout conversion",
+			convKey: testKeyPause,
+			events: []InputEvent{
+				{Code: KEY_LEFTCTRL, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_DOWN},
+			},
+			want: selectionConvertLayout,
+		},
+		{
+			name:    "custom key swap case",
+			convKey: testKeyPause,
+			events: []InputEvent{
+				{Code: KEY_LEFTCTRL, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_DOWN},
+			},
+			want: selectionSwapCase,
+		},
+		{
+			name: "double shift layout conversion",
+			events: []InputEvent{
+				{Code: KEY_LEFTCTRL, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+			want: selectionConvertLayout,
+		},
+		{
+			name: "double shift swap case",
+			events: []InputEvent{
+				{Code: KEY_LEFTCTRL, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+			want: selectionSwapCase,
+		},
+		{
+			name: "double shift swap case with ctrl released first",
+			events: []InputEvent{
+				{Code: KEY_LEFTCTRL, Value: K_DOWN},
+				{Code: testKeyLeftShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: testKeyRightShift, Value: K_DOWN},
+				{Code: testKeyRightShift, Value: K_UP},
+				{Code: KEY_LEFTCTRL, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_UP},
+			},
+			want: selectionSwapCase,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []selectionTransform
+			s := &Switcher{
+				config:    &Config{ConvertKey: tt.convKey},
+				converter: NewConverter(),
+				selectionHandler: func(transform selectionTransform) {
+					got = append(got, transform)
+				},
+			}
+			s.converter.ConvKey = tt.convKey
+
+			for i := range tt.events {
+				s.processKeyEvent(&tt.events[i])
+			}
+
+			if len(got) != 1 {
+				t.Fatalf("selection handler calls = %d, want 1", len(got))
+			}
+			if got[0] != tt.want {
+				t.Fatalf("selection transform = %v, want %v", got[0], tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessKeyEventDoesNotReuseCanceledCtrlShiftGesture(t *testing.T) {
+	var calls int
+	s := &Switcher{
+		config:    &Config{},
+		converter: NewConverter(),
+		selectionHandler: func(selectionTransform) {
+			calls++
+		},
+	}
+
+	events := []InputEvent{
+		{Code: KEY_LEFTCTRL, Value: K_DOWN},
+		{Code: testKeyLeftShift, Value: K_DOWN},
+		{Code: testKeyLeftShift, Value: K_UP},
+		{Code: KEY_LEFTCTRL, Value: K_UP},
+		{Code: testKeyLeftShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_UP},
+		{Code: testKeyRightShift, Value: K_DOWN},
+		{Code: testKeyRightShift, Value: K_UP},
+		{Code: testKeyLeftShift, Value: K_UP},
+	}
+	for i := range events {
+		s.processKeyEvent(&events[i])
+	}
+
+	if calls != 0 {
+		t.Fatalf("selection handler calls = %d, want 0", calls)
+	}
+}
+
 // fastWaitConfig returns a configuration with very short intervals for testing.
 func fastWaitConfig() WaitConfig {
 	return WaitConfig{
@@ -84,6 +227,76 @@ func fastWaitConfig() WaitConfig {
 
 func testSessionEnv() *SessionEnv {
 	return &SessionEnv{User: "testuser", Display: ":0"}
+}
+
+func TestPrepareStableGNOMEX11LayoutSwitchRunsForAutoDetection(t *testing.T) {
+	originalEnsure := ensureGNOMEX11Launch7Binding
+	t.Cleanup(func() { ensureGNOMEX11Launch7Binding = originalEnsure })
+
+	env := testSessionEnv()
+	var gotEnv *SessionEnv
+	ensureGNOMEX11Launch7Binding = func(candidate *SessionEnv) (bool, error) {
+		gotEnv = candidate
+		return true, nil
+	}
+
+	s := &Switcher{sessionEnv: env, debug: true}
+	if err := s.prepareStableGNOMEX11LayoutSwitch(true); err != nil {
+		t.Fatalf("prepareStableGNOMEX11LayoutSwitch() error = %v", err)
+	}
+	if gotEnv != env {
+		t.Fatalf("ensure env = %p, want %p", gotEnv, env)
+	}
+}
+
+func TestPrepareStableGNOMEX11LayoutSwitchSkipsExplicitConfig(t *testing.T) {
+	originalEnsure := ensureGNOMEX11Launch7Binding
+	t.Cleanup(func() { ensureGNOMEX11Launch7Binding = originalEnsure })
+
+	ensureGNOMEX11Launch7Binding = func(candidate *SessionEnv) (bool, error) {
+		t.Fatalf("unexpected ensure call with env %#v", candidate)
+		return false, nil
+	}
+
+	s := &Switcher{sessionEnv: testSessionEnv(), debug: true}
+	if err := s.prepareStableGNOMEX11LayoutSwitch(false); err != nil {
+		t.Fatalf("prepareStableGNOMEX11LayoutSwitch() error = %v", err)
+	}
+}
+
+func TestPrepareStableGNOMEX11LayoutSwitchFailsClosed(t *testing.T) {
+	originalEnsure := ensureGNOMEX11Launch7Binding
+	t.Cleanup(func() { ensureGNOMEX11Launch7Binding = originalEnsure })
+
+	ensureErr := errors.New("gsettings unavailable")
+	ensureGNOMEX11Launch7Binding = func(*SessionEnv) (bool, error) {
+		return false, ensureErr
+	}
+
+	s := &Switcher{sessionEnv: testSessionEnv(), debug: true}
+	err := s.prepareStableGNOMEX11LayoutSwitch(true)
+	if !errors.Is(err, ensureErr) {
+		t.Fatalf("prepareStableGNOMEX11LayoutSwitch() error = %v, want %v", err, ensureErr)
+	}
+}
+
+func TestShouldVerifyGNOMEX11LayoutSwitch(t *testing.T) {
+	result := &DetectionResult{Source: SourceGNOME, RawValue: "XF86Launch7"}
+	if !shouldVerifyGNOMEX11LayoutSwitch(result, testSessionEnv()) {
+		t.Fatal("GNOME X11 Launch7 detection must enable group acknowledgement")
+	}
+	if shouldVerifyGNOMEX11LayoutSwitch(
+		result,
+		&SessionEnv{XDGCurrentDesktop: "GNOME", SessionType: "wayland", WaylandDisplay: "wayland-0"},
+	) {
+		t.Fatal("GNOME Wayland must not enable X11 group acknowledgement")
+	}
+	if shouldVerifyGNOMEX11LayoutSwitch(
+		&DetectionResult{Source: SourceXKB, RawValue: "XF86Launch7"},
+		testSessionEnv(),
+	) {
+		t.Fatal("non-GNOME detection must not enable GNOME X11 acknowledgement")
+	}
 }
 
 // TestWaitForSessionImmediateSuccess tests that waitForSession returns immediately

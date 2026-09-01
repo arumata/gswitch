@@ -82,6 +82,7 @@ const (
 	strLabelLayoutSwitch = "Layout switch key:"
 	strLabelConvertKey   = "Text conversion:"
 	strLayoutSwitchHint  = "Specify the key used to switch keyboard layout in the system"
+	strConvertKeyHint    = "Repeat the same trigger immediately to undo a correction. Add Ctrl for selected text; add Ctrl+Shift to swap its case."
 	strAutoDetect        = "Detect automatically"
 )
 

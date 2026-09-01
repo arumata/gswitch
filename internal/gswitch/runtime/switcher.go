@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 var version = "dev"
@@ -22,6 +24,13 @@ func SetVersion(buildVersion string) {
 }
 
 var getActiveSessionEnv = GetActiveSessionEnv
+
+type selectionTransform int
+
+const (
+	selectionConvertLayout selectionTransform = iota
+	selectionSwapCase
+)
 
 // Switcher handles the keyboard layout switching logic with multi-device support
 type Switcher struct {
@@ -49,9 +58,14 @@ type Switcher struct {
 	clipboard            *Clipboard
 	layoutConverter      *LayoutConverter
 	ctrlPressed          atomic.Bool
+	leftShiftPressed     atomic.Bool
+	rightShiftPressed    atomic.Bool
+	ctrlShiftSelectArmed atomic.Bool
 	inConversion         atomic.Bool
 	lastConvertedPrimary string
+	lastConvertedMode    selectionTransform
 	lastConvertedMu      sync.Mutex
+	selectionHandler     func(selectionTransform)
 
 	eventChan      chan *InputEvent
 	overflowEvents []*InputEvent
@@ -60,6 +74,10 @@ type Switcher struct {
 	// Degraded mode: layout-switch=auto but no grp:* option detected.
 	// In this mode: selection convert works, buffer convert is disabled.
 	degradedMode bool
+
+	// GNOME X11 applies even single-key accelerators asynchronously. Confirm the
+	// XKB group transition before any text mutation when using the internal key.
+	verifyGNOMEX11LayoutSwitch bool
 }
 
 // NewSwitcher creates a new Switcher instance
@@ -125,6 +143,10 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 	// Setup X11 environment before auto-detection (needed for setxkbmap, X11 property reads)
 	setupX11Environment()
 
+	if err := s.prepareStableGNOMEX11LayoutSwitch(autoDetect); err != nil {
+		return nil, err
+	}
+
 	// Perform auto-detection of layout switch keys if configured
 	if autoDetect {
 		result, detectErr := DetectLayoutSwitchKeys(nil)
@@ -143,6 +165,7 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 				"run 'sudo showkey' to find your key scancodes", err, ConfigFile)
 		default:
 			config.LayoutSwitchKey = scancodes
+			s.verifyGNOMEX11LayoutSwitch = shouldVerifyGNOMEX11LayoutSwitch(result, s.sessionEnv)
 			if debug {
 				fmt.Printf("Auto-detected layout switch keys: %s (%v) from %s\n",
 					result.KeyNames, result.Scancodes, result.Source)
@@ -189,6 +212,21 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 	cleanupLogger = false
 	cleanupSignalHandler = false
 	return s, nil
+}
+
+func (s *Switcher) prepareStableGNOMEX11LayoutSwitch(autoDetect bool) error {
+	if !autoDetect {
+		return nil
+	}
+
+	changed, err := ensureGNOMEX11Launch7Binding(s.sessionEnv)
+	if err != nil {
+		return fmt.Errorf("prepare stable GNOME X11 layout switch: %w", err)
+	}
+	if changed {
+		s.log("Added XF86Launch7 to GNOME layout-switch bindings for stable X11 input")
+	}
+	return nil
 }
 
 func (s *Switcher) prepareSessionEnvironment(autoDetect, runningAsRoot bool) (*SessionEnv, error) {
@@ -613,21 +651,18 @@ func (s *Switcher) readAllDeviceEvents() {
 
 func (s *Switcher) processKeyEvent(event *InputEvent) {
 	s.logDebug("input event received")
-
-	// Track Ctrl state (ignore autorepeat)
-	if event.Code == KEY_LEFTCTRL || event.Code == KEY_RIGHTCTRL {
-		switch event.Value {
-		case 1:
-			s.ctrlPressed.Store(true)
-		case 0:
-			s.ctrlPressed.Store(false)
-		}
-	}
+	defer s.finishSelectionModifierEvent(event)
+	s.trackSelectionModifiers(event)
 
 	// Ctrl+ConvertKey -> selection conversion (custom key mode)
 	if s.config.ConvertKey != 0 && event.Code == s.config.ConvertKey && event.Value == 1 && s.ctrlPressed.Load() {
-		s.logDebug("Ctrl+ConvertKey detected - converting selection")
-		s.convertSelection()
+		transform := selectionConvertLayout
+		if s.leftShiftPressed.Load() || s.rightShiftPressed.Load() {
+			transform = selectionSwapCase
+		}
+		s.logDebug("selection trigger detected")
+		s.ctrlShiftSelectArmed.Store(false)
+		s.handleSelection(transform)
 		return
 	}
 
@@ -646,15 +681,23 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 			s.logDebug("Convert pattern detected, processing...")
 
 			// Ctrl+DoubleShift -> selection conversion (double-shift mode)
-			if s.config.ConvertKey == 0 && s.ctrlPressed.Load() {
-				s.logDebug("Ctrl+DoubleShift detected - converting selection")
+			heldShiftAction := action == ActionConvertAll || action == ActionDoubleShiftHeldNoText
+			selectionControlActive := s.ctrlPressed.Load() ||
+				(heldShiftAction && s.ctrlShiftSelectArmed.Load())
+			if s.config.ConvertKey == 0 && selectionControlActive {
+				transform := selectionConvertLayout
+				if heldShiftAction {
+					transform = selectionSwapCase
+				}
+				s.logDebug("selection trigger detected")
+				s.ctrlShiftSelectArmed.Store(false)
 				s.converter.ClearBuffer()
-				s.convertSelection()
+				s.handleSelection(transform)
 				return
 			}
 
 			// Bare double-shift without Ctrl and without text: nothing to do
-			if action == ActionDoubleShiftNoText {
+			if action == ActionDoubleShiftNoText || action == ActionDoubleShiftHeldNoText {
 				s.logDebug("Double-shift without text ignored")
 				return
 			}
@@ -675,6 +718,47 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 	}
 }
 
+func (s *Switcher) trackSelectionModifiers(event *InputEvent) {
+	if event.Code == KEY_LEFTCTRL || event.Code == KEY_RIGHTCTRL {
+		switch event.Value {
+		case K_DOWN:
+			s.ctrlPressed.Store(true)
+		case K_UP:
+			s.ctrlPressed.Store(false)
+			if !s.leftShiftPressed.Load() && !s.rightShiftPressed.Load() {
+				s.ctrlShiftSelectArmed.Store(false)
+			}
+		}
+		return
+	}
+
+	// Remember Ctrl for the full held-Shift gesture even if Ctrl is released
+	// a few milliseconds before the held Shift.
+	if Shifts[event.Code] {
+		pressed := event.Value != K_UP
+		if event.Code == KEY_LEFTSHIFT {
+			s.leftShiftPressed.Store(pressed)
+		} else {
+			s.rightShiftPressed.Store(pressed)
+		}
+		if event.Value == K_DOWN && s.ctrlPressed.Load() {
+			s.ctrlShiftSelectArmed.Store(true)
+		}
+		return
+	}
+
+	if event.Value == K_DOWN {
+		s.ctrlShiftSelectArmed.Store(false)
+	}
+}
+
+func (s *Switcher) finishSelectionModifierEvent(event *InputEvent) {
+	if Shifts[event.Code] && event.Value == K_UP &&
+		!s.ctrlPressed.Load() && !s.leftShiftPressed.Load() && !s.rightShiftPressed.Load() {
+		s.ctrlShiftSelectArmed.Store(false)
+	}
+}
+
 func (s *Switcher) performConversion(action Action) {
 	if s.config.ReverseMode {
 		switch action {
@@ -690,8 +774,15 @@ func (s *Switcher) performConversion(action Action) {
 	} else {
 		s.logDebug("convert word")
 	}
+	undo := s.converter.CanUndo(action)
+	if undo {
+		s.logDebug("undoing previous conversion")
+	}
 
 	events := s.converter.Convert(action)
+	if len(events) == 0 {
+		return
+	}
 
 	// Release shift keys before layout switch
 	for shiftKey := range Shifts {
@@ -700,11 +791,36 @@ func (s *Switcher) performConversion(action Action) {
 		}
 	}
 	time.Sleep(time.Duration(s.config.Delay) * time.Millisecond)
-
 	// The DE applies the layout switch asynchronously (GNOME routes it through
 	// the shell/ibus) and key events arriving mid-switch get dropped, so pause
 	// right after the switch keys before emitting backspaces and the replay.
 	switchEvents := len(s.converter.LSKeys) * 2
+	if s.verifyGNOMEX11LayoutSwitch {
+		reader, readerErr := newX11LayoutGroupReader()
+		if readerErr != nil {
+			s.logError("GNOME X11 layout switch confirmation: %v", readerErr)
+			return
+		}
+		switchErr := triggerAndConfirmLayoutSwitch(
+			reader,
+			s.converter.LSKeys,
+			func(event KeyEvent) error {
+				return s.vKeyboard.EmitKey(event.Code, event.Value)
+			},
+			layoutSwitchAttempts,
+			layoutGroupPollAttempts,
+			time.Duration(s.config.Delay)*time.Millisecond,
+			time.Sleep,
+		)
+		reader.Close()
+		if switchErr != nil {
+			s.logError("GNOME X11 layout switch confirmation: %v", switchErr)
+			return
+		}
+		events = events[switchEvents:]
+		switchEvents = 0
+		time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
+	}
 	for i, ev := range events {
 		if err := s.vKeyboard.EmitKey(ev.Code, ev.Value); err != nil {
 			s.logError("failed to emit key: %v", err)
@@ -718,16 +834,55 @@ func (s *Switcher) performConversion(action Action) {
 
 	time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
 	s.inputReader.Flush()
+	s.converter.CompleteConversion(action)
 	s.logDebug("buffer length after conversion=%d", s.converter.BufferLen())
+}
+
+func shouldVerifyGNOMEX11LayoutSwitch(result *DetectionResult, env *SessionEnv) bool {
+	if result == nil || result.Source != SourceGNOME || result.RawValue != "XF86Launch7" {
+		return false
+	}
+	if env != nil {
+		if strings.EqualFold(env.SessionType, "wayland") || env.WaylandDisplay != "" {
+			return false
+		}
+		return strings.EqualFold(env.SessionType, "x11") || env.Display != ""
+	}
+	return strings.EqualFold(os.Getenv("XDG_SESSION_TYPE"), "x11") &&
+		os.Getenv("WAYLAND_DISPLAY") == ""
 }
 
 func textDebugSummary(label, text string) string {
 	return fmt.Sprintf("%s length=%d runes", label, len([]rune(text)))
 }
 
-// convertSelection converts selected text via clipboard
-func (s *Switcher) convertSelection() {
-	if s.clipboard == nil || s.layoutConverter == nil {
+func (s *Switcher) handleSelection(transform selectionTransform) {
+	if s.selectionHandler != nil {
+		s.selectionHandler(transform)
+		return
+	}
+	s.convertSelection(transform)
+}
+
+func swapCase(text string) string {
+	var result strings.Builder
+	result.Grow(len(text))
+	for _, r := range text {
+		switch {
+		case unicode.IsUpper(r) || unicode.IsTitle(r):
+			result.WriteRune(unicode.ToLower(r))
+		case unicode.IsLower(r):
+			result.WriteRune(unicode.ToUpper(r))
+		default:
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// convertSelection transforms selected text via the existing clipboard path.
+func (s *Switcher) convertSelection(transform selectionTransform) {
+	if s.clipboard == nil || (transform == selectionConvertLayout && s.layoutConverter == nil) {
 		s.logError("Selection conversion not available")
 		return
 	}
@@ -736,6 +891,9 @@ func (s *Switcher) convertSelection() {
 	defer func() {
 		s.drainEventChan()
 		s.ctrlPressed.Store(false)
+		s.leftShiftPressed.Store(false)
+		s.rightShiftPressed.Store(false)
+		s.ctrlShiftSelectArmed.Store(false)
 		s.converter.ClearBuffer()
 		s.inConversion.Store(false)
 	}()
@@ -761,24 +919,29 @@ func (s *Switcher) convertSelection() {
 
 	s.lastConvertedMu.Lock()
 	lastConverted := s.lastConvertedPrimary
+	lastMode := s.lastConvertedMode
 	s.lastConvertedMu.Unlock()
 
-	if text == lastConverted {
+	if text == lastConverted && transform == lastMode {
 		s.logDebug("Same selection as last time, skipping")
 		return
 	}
 
 	s.logDebug("%s", textDebugSummary("selected text", text))
 
-	// Convert text
-	isLayout1 := s.layoutConverter.DetectLayout(text)
 	var converted string
-	if isLayout1 {
-		converted = s.layoutConverter.Convert(text, true)
-		s.logDebug("Converting from %s to %s", s.layoutConverter.Layout1.Name, s.layoutConverter.Layout2.Name)
+	if transform == selectionSwapCase {
+		converted = swapCase(text)
+		s.logDebug("Swapping selection case")
 	} else {
-		converted = s.layoutConverter.Convert(text, false)
-		s.logDebug("Converting from %s to %s", s.layoutConverter.Layout2.Name, s.layoutConverter.Layout1.Name)
+		isLayout1 := s.layoutConverter.DetectLayout(text)
+		if isLayout1 {
+			converted = s.layoutConverter.Convert(text, true)
+			s.logDebug("Converting from %s to %s", s.layoutConverter.Layout1.Name, s.layoutConverter.Layout2.Name)
+		} else {
+			converted = s.layoutConverter.Convert(text, false)
+			s.logDebug("Converting from %s to %s", s.layoutConverter.Layout2.Name, s.layoutConverter.Layout1.Name)
+		}
 	}
 
 	s.logDebug("%s", textDebugSummary("converted text", converted))
@@ -792,6 +955,7 @@ func (s *Switcher) convertSelection() {
 
 	s.lastConvertedMu.Lock()
 	s.lastConvertedPrimary = text
+	s.lastConvertedMode = transform
 	s.lastConvertedMu.Unlock()
 
 	// Paste with Ctrl+V
@@ -810,6 +974,13 @@ func (s *Switcher) convertSelection() {
 	}
 
 	time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
+	if err := s.clipboard.ClearPrimarySelection(); err != nil {
+		s.logDebug("failed to clear PRIMARY selection; retaining duplicate guard: %v", err)
+	} else {
+		s.lastConvertedMu.Lock()
+		s.lastConvertedPrimary = ""
+		s.lastConvertedMu.Unlock()
+	}
 	s.inputReader.Flush()
 	s.logDebug("Selection conversion complete")
 }

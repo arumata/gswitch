@@ -78,14 +78,21 @@ const (
 
 // Key codes
 const (
-	KEY_BACKSPACE = 14
-	KEY_SPACE     = 57
-	KEY_ENTER     = 28
-	KEY_KPENTER   = 96
-	KEY_LEFTCTRL  = 29
-	KEY_RIGHTCTRL = 97
-	KEY_C         = 46
-	KEY_V         = 47
+	KEY_BACKSPACE  = 14
+	KEY_SPACE      = 57
+	KEY_ENTER      = 28
+	KEY_KPENTER    = 96
+	KEY_LEFTCTRL   = 29
+	KEY_RIGHTCTRL  = 97
+	KEY_LEFTSHIFT  = 42
+	KEY_RIGHTSHIFT = 54
+	KEY_C          = 46
+	KEY_V          = 47
+)
+
+const (
+	KEY_KEYBOARD uint16 = 0x176
+	KEY_MAX      uint16 = 0x2ff
 )
 
 // Timeouts and limits for keyboard detection (in iterations)
@@ -165,8 +172,8 @@ var Letters = map[uint16]bool{
 
 // Shift keys
 var Shifts = map[uint16]bool{
-	42: true,
-	54: true,
+	KEY_LEFTSHIFT:  true,
+	KEY_RIGHTSHIFT: true,
 }
 
 // Buffer killers (keys that clear the buffer)

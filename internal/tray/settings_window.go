@@ -302,6 +302,19 @@ func (w *SettingsWindow) createKeysSection() (*gtk.Frame, error) {
 	w.convertKeyCombo.Connect("changed", w.onConvertKeyChanged)
 	grid.Attach(w.convertKeyCombo, 1, 3, 1, 1)
 
+	// Row 4: Conversion shortcut hint
+	convertKeyHint, err := gtk.LabelNew("")
+	if err != nil {
+		return nil, err
+	}
+	convertKeyHint.SetUseMarkup(true)
+	convertKeyHintText := glib.MarkupEscapeText(strConvertKeyHint)
+	convertKeyHint.SetMarkup("<small><span foreground='gray'>" + convertKeyHintText + "</span></small>")
+	convertKeyHint.SetLineWrap(true)
+	convertKeyHint.SetHAlign(gtk.ALIGN_START)
+	convertKeyHint.SetMarginStart(5)
+	grid.Attach(convertKeyHint, 0, 4, 2, 1)
+
 	frame.Add(grid)
 	return frame, nil
 }

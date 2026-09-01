@@ -11,12 +11,19 @@ type Config = cfg.Config
 type LayoutSpec = cfg.LayoutSpec
 type DetectionResult = detect.DetectionResult
 type DetectionOptions = detect.DetectionOptions
+type DetectionSource = detect.DetectionSource
 type SessionEnv = detect.SessionEnv
 
+const (
+	SourceGNOME = detect.SourceGNOME
+	SourceXKB   = detect.SourceXKB
+)
+
 var (
-	ErrNoActiveSession      = detect.ErrNoActiveSession
-	ErrNoSystemd            = detect.ErrNoSystemd
-	ErrNoLayoutSwitchOption = detect.ErrNoLayoutSwitchOption
+	ErrNoActiveSession           = detect.ErrNoActiveSession
+	ErrNoSystemd                 = detect.ErrNoSystemd
+	ErrNoLayoutSwitchOption      = detect.ErrNoLayoutSwitchOption
+	ensureGNOMEX11Launch7Binding = detect.EnsureGNOMEX11Launch7Binding
 )
 
 func GetActiveSessionEnv() (*SessionEnv, error) {

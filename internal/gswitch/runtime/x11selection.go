@@ -177,6 +177,19 @@ func (x *X11Selection) readProperty() (string, error) {
 	return string(reply.Value), nil
 }
 
+// ClearPrimary removes the current PRIMARY selection owner.
+func (x *X11Selection) ClearPrimary() error {
+	if err := xproto.SetSelectionOwnerChecked(
+		x.conn,
+		xproto.WindowNone,
+		x.atoms.primary,
+		xproto.TimeCurrentTime,
+	).Check(); err != nil {
+		return fmt.Errorf("failed to clear PRIMARY selection: %w", err)
+	}
+	return nil
+}
+
 // Close closes the X11 connection
 func (x *X11Selection) Close() {
 	if x.conn != nil {
