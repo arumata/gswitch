@@ -5,39 +5,58 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/arumata/gswitch)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**gswitch** fixes text typed in the wrong keyboard layout — system-wide, in any application, on X11 and Wayland.
+**gswitch** fixes text typed in the wrong keyboard layout, system-wide on X11
+and Wayland. It does not guess your language or change text in the background.
+You press a trigger when you want a correction.
 
 You typed a word, but the wrong layout was active:
 
 | You got | You meant | Layout pair |
 |---|---|---|
 | `ghbdtn` | `привет` | English ↔ Russian |
+| `ghbdsn` | `привіт` | English ↔ Ukrainian |
 | `yeit` | `zeit` | English ↔ German (QWERTZ) |
-| `;qdq;e` | `madame` | English ↔ French (AZERTY) |
-| `ma;ana` | `mañana` | English ↔ Spanish |
+| `qwerty` | `azerty` | English ↔ French (AZERTY) |
+| `espa;ol` | `español` | English ↔ Spanish |
 
-By default, double-tap <kbd>Shift</kbd>: gswitch erases the word, switches the
-layout, and retypes it correctly. You can replace double-Shift with another key
-in the tray application's Settings window. No mouse, no retyping, no per-app
-plugins.
+By default, double-tap <kbd>Shift</kbd> to fix the last word. Hold one
+<kbd>Shift</kbd> and double-tap the other to fix the current phrase. You can
+also convert selected text, swap its case, or repeat a correction immediately
+to undo it. If Double Shift conflicts with an IDE or another application,
+choose Pause/Break, Scroll Lock, or another single key in Settings.
 
-It works at the Linux kernel input level: keystrokes are read from `/dev/input` (evdev) and corrections are replayed through a virtual keyboard (`uinput`). Because of this, correction is completely independent of the display server, toolkit, or application — it works in terminals, browsers, IDEs, Electron apps, and games alike.
+Word and phrase correction runs at the Linux input layer. gswitch reads
+keystrokes from `/dev/input` (evdev) and replays corrections through a virtual
+keyboard (`uinput`). Typed-text correction therefore works across applications
+without browser extensions, editor plugins, or toolkit-specific integration.
 
 ## Features
 
-- **Correction modes**
-  - *Last word* — double-tap <kbd>Shift</kbd> by default
-  - *Whole phrase* (everything since the last <kbd>Enter</kbd>) — hold one <kbd>Shift</kbd>, double-tap the other
-  - *Selected text layout* — select text anywhere, press <kbd>Ctrl</kbd> + double-<kbd>Shift</kbd>
-  - *Selected text case* — hold <kbd>Ctrl</kbd> and one <kbd>Shift</kbd>, then double-tap the other <kbd>Shift</kbd>
-- **One-step undo** — repeat the same correction trigger immediately to restore the original text and layout; subsequent text input cancels undo
-- **System-wide** — operates below the display server; any app, X11 or Wayland
-- **Any layout pair** — 1600+ keysym mappings (Latin, Cyrillic, Greek, Arabic, Hebrew, Thai, …); tested with Russian, Ukrainian, German (QWERTZ), French (AZERTY), and Spanish
-- **Zero-config by default** — auto-detects your keyboards, your layouts, and your layout-switch hotkey from system settings (GNOME, KDE, fcitx5, ibus, XKB)
-- **Multi-keyboard aware** — handles several keyboards at once, with hotplug support
-- **Tray application** — status indicator, settings GUI, and service control
-- **Configurable trigger** — use a custom key (e.g. <kbd>Caps Lock</kbd> or <kbd>Pause</kbd>) instead of double-Shift
-- **Runs as a systemd user service** — starts with your graphical session
+- **Manual and deterministic.** gswitch changes text only when you press the
+  correction trigger. It does not try to detect the language you intended.
+- **Word, phrase, selection, case, and undo.** Fix the last word or current
+  phrase, convert a selection, change the case of selected letters, or
+  immediately undo the last word or phrase correction.
+- **System-wide typed-text correction.** The evdev/uinput path works below the
+  display server on X11 and Wayland. Selection conversion uses the desktop
+  clipboard path.
+- **Five release-gate layout pairs.** The suite tests English paired with
+  Russian, Ukrainian, German QWERTZ, French AZERTY, and Spanish in both
+  directions. The XKB conversion tables cover more scripts, but other pairs
+  are not yet part of the release gate.
+- **Multiple keyboards with hotplug.** gswitch watches several input devices
+  and picks up keyboards connected after startup.
+- **Separate layout and shortcut detection.** Configured layouts are read from
+  fcitx5, IBus, KDE, GNOME, or XKB sources. The layout-switch shortcut is
+  detected from XKB options, including KDE's XKB settings, or from GNOME
+  keybindings. More than two configured layouts require an explicit pair.
+- **A user service, not a root daemon.** systemd runs gswitch as the graphical
+  user; udev/logind grants the active session access through `uaccess`.
+- **Ready-to-install, auditable releases.** Tagged releases include x86-64
+  DEB, RPM, and tar.gz artifacts with checksums. The source is MIT-licensed.
+- **Tray and custom trigger.** The tray shows status, edits settings, controls
+  the user service, and offers Pause/Break and Scroll Lock presets or another
+  single correction key.
 
 ## How It Works
 
@@ -71,17 +90,23 @@ private reporting.
 
 ## Tested Environments
 
-Every release is verified by an automated end-to-end suite (synthetic keyboard input, real desktop sessions) across:
+The current release was verified with packaged binaries, synthetic keyboard
+input, and real desktop sessions in six combinations:
 
-| Environment | Display server | Package |
-|---|---|---|
-| Ubuntu 24.04 · GNOME 46 | Wayland, X11 | deb |
-| Ubuntu 24.04 · KDE Plasma 5.27 | Wayland, X11 | deb |
-| KDE Plasma 6 | Wayland | deb |
-| Fedora 44 · GNOME 50 | Wayland | rpm (SELinux enforcing) |
-| Fedora 44 · KDE Plasma 6.7 | Wayland | rpm (SELinux enforcing) |
+| Distribution | Desktop | Display server | Package |
+|---|---|---|---|
+| Ubuntu 24.04 | GNOME 46 | Wayland | DEB |
+| Ubuntu 24.04 | GNOME 46 | X11 | DEB |
+| Ubuntu 24.04 | KDE Plasma 5.27 | Wayland | DEB |
+| Ubuntu 24.04 | KDE Plasma 5.27 | X11 | DEB |
+| Fedora 44 | GNOME 50 | Wayland | RPM (SELinux enforcing) |
+| Fedora 44 | KDE Plasma 6.7 | Wayland | RPM (SELinux enforcing) |
 
-The suite covers word/phrase/selection correction in both directions for all five tested layout pairs, plus the tray application.
+Each combination covers layout detection, word and phrase correction,
+immediate undo, selection conversion, selection case swap, the user service,
+and the tray across all five release-gate layout pairs. These are the tested
+boundaries, not a claim that every desktop, input method, or layout pair has
+been verified.
 
 ## Installation
 
