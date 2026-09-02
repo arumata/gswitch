@@ -30,12 +30,19 @@ if command -v udevadm >/dev/null 2>&1; then
     rm -f /usr/lib/udev/rules.d/90-gswitch.rules \
         /etc/udev/rules.d/90-gswitch.rules
     udevadm control --reload-rules || true
+    # Some distributions create /dev/uinput as a static node before the
+    # kernel device exists. Loading the module emits the udev event needed to
+    # apply the new uaccess rule immediately, without waiting for a reboot.
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe uinput || true
+    fi
     udevadm trigger --subsystem-match=misc --action=change || true
     udevadm trigger --subsystem-match=input --action=change || true
 fi
 
-# Reload active user managers and restart gswitch only where it was already
-# running. Do not enable a service the user explicitly disabled.
+# Reload active user managers. Restart gswitch where it was already running,
+# and recover a failed instance after package files or permissions changed.
+# Do not enable or start an inactive service the user explicitly disabled.
 if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
     loginctl list-users --no-legend 2>/dev/null | while read -r uid user _; do
         runtime_dir="/run/user/$uid"
@@ -44,10 +51,24 @@ if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; th
                 XDG_RUNTIME_DIR="$runtime_dir" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
                 systemctl --user daemon-reload 2>/dev/null || true
-            runuser -u "$user" -- env \
+            if runuser -u "$user" -- env \
                 XDG_RUNTIME_DIR="$runtime_dir" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
-                systemctl --user try-restart gswitch.service 2>/dev/null || true
+                systemctl --user is-failed --quiet gswitch.service 2>/dev/null; then
+                runuser -u "$user" -- env \
+                    XDG_RUNTIME_DIR="$runtime_dir" \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
+                    systemctl --user reset-failed gswitch.service 2>/dev/null || true
+                runuser -u "$user" -- env \
+                    XDG_RUNTIME_DIR="$runtime_dir" \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
+                    systemctl --user start gswitch.service 2>/dev/null || true
+            else
+                runuser -u "$user" -- env \
+                    XDG_RUNTIME_DIR="$runtime_dir" \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus" \
+                    systemctl --user try-restart gswitch.service 2>/dev/null || true
+            fi
         fi
     done
 fi

@@ -80,6 +80,7 @@ const (
 const (
 	KEY_BACKSPACE  = 14
 	KEY_SPACE      = 57
+	KEY_LEFTMETA   = 125
 	KEY_ENTER      = 28
 	KEY_KPENTER    = 96
 	KEY_LEFTCTRL   = 29

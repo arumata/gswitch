@@ -6,5 +6,7 @@
 # Physical keyboard event streams (raw keystrokes).
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", TAG+="uaccess"
 
-# Userspace input device creation (synthetic corrected keystrokes).
-SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess"
+# Userspace input device creation (synthetic corrected keystrokes). Some
+# distributions create /dev/uinput before the kernel device exists, so carry
+# the uaccess tag onto that static node as well.
+SUBSYSTEM=="misc", KERNEL=="uinput", TAG+="uaccess", OPTIONS+="static_node=uinput"

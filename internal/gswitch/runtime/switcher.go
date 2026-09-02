@@ -78,6 +78,10 @@ type Switcher struct {
 	// GNOME X11 applies even single-key accelerators asynchronously. Confirm the
 	// XKB group transition before any text mutation when using the internal key.
 	verifyGNOMEX11LayoutSwitch bool
+
+	// GNOME Wayland can occasionally drop the configured shortcut. Confirm its
+	// input-source state before mutating text and retry the shortcut once.
+	verifyGNOMEWaylandLayoutSwitch bool
 }
 
 // NewSwitcher creates a new Switcher instance
@@ -166,6 +170,7 @@ func NewSwitcher(config *Config, debug bool) (*Switcher, error) {
 		default:
 			config.LayoutSwitchKey = scancodes
 			s.verifyGNOMEX11LayoutSwitch = shouldVerifyGNOMEX11LayoutSwitch(result, s.sessionEnv)
+			s.verifyGNOMEWaylandLayoutSwitch = shouldVerifyGNOMEWaylandLayoutSwitch(result, s.sessionEnv)
 			if debug {
 				fmt.Printf("Auto-detected layout switch keys: %s (%v) from %s\n",
 					result.KeyNames, result.Scancodes, result.Source)
@@ -795,7 +800,27 @@ func (s *Switcher) performConversion(action Action) {
 	// the shell/ibus) and key events arriving mid-switch get dropped, so pause
 	// right after the switch keys before emitting backspaces and the replay.
 	switchEvents := len(s.converter.LSKeys) * 2
-	if s.verifyGNOMEX11LayoutSwitch {
+	if s.verifyGNOMEWaylandLayoutSwitch {
+		reader := gnomeWaylandLayoutStateReader{env: s.sessionEnv}
+		switchErr := triggerAndConfirmGNOMEWaylandLayoutSwitch(
+			reader,
+			s.converter.LSKeys,
+			func(event KeyEvent) error {
+				return s.vKeyboard.EmitKey(event.Code, event.Value)
+			},
+			gnomeWaylandLayoutSwitchAttempts,
+			gnomeWaylandLayoutGroupPollAttempts,
+			time.Duration(s.config.Delay)*time.Millisecond,
+			time.Sleep,
+		)
+		if switchErr != nil {
+			s.logError("GNOME Wayland layout switch confirmation: %v", switchErr)
+			return
+		}
+		events = events[switchEvents:]
+		switchEvents = 0
+		time.Sleep(time.Duration(s.config.LayoutSwitchDelay) * time.Millisecond)
+	} else if s.verifyGNOMEX11LayoutSwitch {
 		reader, readerErr := newX11LayoutGroupReader()
 		if readerErr != nil {
 			s.logError("GNOME X11 layout switch confirmation: %v", readerErr)
@@ -850,6 +875,17 @@ func shouldVerifyGNOMEX11LayoutSwitch(result *DetectionResult, env *SessionEnv) 
 	}
 	return strings.EqualFold(os.Getenv("XDG_SESSION_TYPE"), "x11") &&
 		os.Getenv("WAYLAND_DISPLAY") == ""
+}
+
+func shouldVerifyGNOMEWaylandLayoutSwitch(result *DetectionResult, env *SessionEnv) bool {
+	if result == nil || result.Source != SourceGNOME {
+		return false
+	}
+	if env != nil {
+		return strings.EqualFold(env.SessionType, "wayland") || env.WaylandDisplay != ""
+	}
+	return strings.EqualFold(os.Getenv("XDG_SESSION_TYPE"), "wayland") ||
+		os.Getenv("WAYLAND_DISPLAY") != ""
 }
 
 func textDebugSummary(label, text string) string {

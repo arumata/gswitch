@@ -38,6 +38,10 @@ func CommandAsSessionUser(env *SessionEnv, name string, args ...string) (*exec.C
 	return detect.CommandAsSessionUser(env, name, args...)
 }
 
+func RunGsettings(env *SessionEnv, args ...string) ([]byte, error) {
+	return detect.RunGsettings(env, args...)
+}
+
 func DetectLayoutSwitchKeys(opts *DetectionOptions) (*DetectionResult, error) {
 	return detect.DetectLayoutSwitchKeys(opts)
 }

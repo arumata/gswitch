@@ -15,7 +15,7 @@
 #include <X11/Xatom.h>
 
 // syncStatus is a function from the Go side.
-extern void syncStatus(uintptr_t handle, int status);
+extern void syncStatus(uintptr_t handle, intptr_t status);
 
 void *libX11;
 
