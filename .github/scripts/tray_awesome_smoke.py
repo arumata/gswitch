@@ -169,16 +169,21 @@ def main() -> int:
                     return None
 
                 menu, menu_width, menu_height = wait_for("XEmbed popup menu", popup_menu)
-                # Mapping the popup precedes its keyboard grab on a busy CI
-                # runner. Focus it explicitly before driving the menu so the
-                # key sequence cannot land on Awesome's no-input window.
+                # Click the Settings row directly. Keyboard navigation depends
+                # on GTK's transient menu selection state and has selected a
+                # different row on GitHub-hosted Xvfb runners.
                 subprocess.run(
-                    ["xdotool", "windowfocus", "--sync", menu],
-                    check=True,
-                    env=env,
-                )
-                subprocess.run(
-                    ["xdotool", "key", "Home", "Down", "Down", "Return"],
+                    [
+                        "xdotool",
+                        "mousemove",
+                        "--sync",
+                        "--window",
+                        menu,
+                        str(menu_width // 2),
+                        str(menu_height * 7 // 10),
+                        "click",
+                        "1",
+                    ],
                     check=True,
                     env=env,
                 )
