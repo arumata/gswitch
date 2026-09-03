@@ -169,6 +169,14 @@ def main() -> int:
                     return None
 
                 menu, menu_width, menu_height = wait_for("XEmbed popup menu", popup_menu)
+                # Mapping the popup precedes its keyboard grab on a busy CI
+                # runner. Focus it explicitly before driving the menu so the
+                # key sequence cannot land on Awesome's no-input window.
+                subprocess.run(
+                    ["xdotool", "windowfocus", "--sync", menu],
+                    check=True,
+                    env=env,
+                )
                 subprocess.run(
                     ["xdotool", "key", "Home", "Down", "Down", "Return"],
                     check=True,
