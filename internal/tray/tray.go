@@ -6,23 +6,22 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"fyne.io/systray"
 )
 
 // Tray represents the system tray icon and menu.
 type Tray struct {
-	app *App
+	app     *App
+	backend trayBackend
 
 	// Service manager for status updates
 	serviceManager *ServiceManager
 
 	// Menu items
-	mServiceStatus *systray.MenuItem
-	mServiceAction *systray.MenuItem
-	mRefresh       *systray.MenuItem
-	mSettings      *systray.MenuItem
-	mQuit          *systray.MenuItem
+	mServiceStatus trayMenuItem
+	mServiceAction trayMenuItem
+	mRefresh       trayMenuItem
+	mSettings      trayMenuItem
+	mQuit          trayMenuItem
 
 	// Current layout code (to avoid unnecessary icon updates)
 	currentCode string
@@ -47,7 +46,7 @@ type Tray struct {
 	statusRefreshPending atomic.Bool
 	togglePending        atomic.Bool
 
-	// UI update queue to serialize systray API calls and state mutations.
+	// UI update queue to serialize tray API calls and state mutations.
 	uiOps chan func()
 }
 
@@ -89,9 +88,10 @@ func setBeforeApplyLayoutHookForTest(hook func()) func() {
 }
 
 // NewTray creates a new system tray instance.
-func NewTray(app *App) *Tray {
+func NewTray(app *App, backend trayBackend) *Tray {
 	return &Tray{
 		app:            app,
+		backend:        backend,
 		serviceManager: NewServiceManager("gswitch.service"),
 		stopChan:       make(chan struct{}),
 		serviceOps:     make(chan serviceRequest, 8),
@@ -99,24 +99,24 @@ func NewTray(app *App) *Tray {
 	}
 }
 
-// onReady is called when systray is ready.
+// onReady is called when the selected tray backend is ready.
 func (t *Tray) onReady() {
 	// Set initial icon (will be updated based on detection status and layout)
-	systray.SetIcon(kbIcon)
-	systray.SetTitle("")
-	systray.SetTooltip("gswitch " + appVersion + " - Layout switcher")
+	t.backend.SetIcon(kbIcon)
+	t.backend.SetTitle("")
+	t.backend.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 
 	// Create service status menu items
-	t.mServiceStatus = systray.AddMenuItem(strTrayServiceUnknown, "Service status")
+	t.mServiceStatus = t.backend.AddMenuItem(strTrayServiceUnknown, "Service status")
 	t.mServiceStatus.Disable() // Status is display-only
-	t.mServiceAction = systray.AddMenuItem(strButtonStop, "Stop/Start service")
-	systray.AddSeparator()
+	t.mServiceAction = t.backend.AddMenuItem(strButtonStop, "Stop/Start service")
+	t.backend.AddSeparator()
 
 	// Create menu items
-	t.mRefresh = systray.AddMenuItem(strTrayRefresh, "Refresh detection status")
-	t.mSettings = systray.AddMenuItem("Settings...", "Open settings")
-	systray.AddSeparator()
-	t.mQuit = systray.AddMenuItem("Quit", "Close application")
+	t.mRefresh = t.backend.AddMenuItem(strTrayRefresh, "Refresh detection status")
+	t.mSettings = t.backend.AddMenuItem("Settings...", "Open settings")
+	t.backend.AddSeparator()
+	t.mQuit = t.backend.AddMenuItem("Quit", "Close application")
 
 	// Handle menu clicks and queued UI updates in a single goroutine.
 	go t.handleEvents()
@@ -134,7 +134,7 @@ func (t *Tray) onReady() {
 	t.app.onTrayReady()
 }
 
-// onExit is called when systray is exiting.
+// onExit is called when the selected tray backend is exiting.
 func (t *Tray) onExit() {
 	t.stopOnce.Do(func() {
 		close(t.stopChan)
@@ -214,13 +214,13 @@ func (t *Tray) handleEvents() {
 			if fn != nil {
 				fn()
 			}
-		case <-t.mServiceAction.ClickedCh:
+		case <-t.mServiceAction.Clicks():
 			t.requestServiceToggle()
-		case <-t.mRefresh.ClickedCh:
+		case <-t.mRefresh.Clicks():
 			go t.app.RefreshDetectionStatus()
-		case <-t.mSettings.ClickedCh:
+		case <-t.mSettings.Clicks():
 			t.app.OnSettingsClicked()
-		case <-t.mQuit.ClickedCh:
+		case <-t.mQuit.Clicks():
 			t.app.Quit()
 		case <-t.stopChan:
 			return
@@ -377,7 +377,7 @@ func (t *Tray) applyLayout(layout LayoutInfo) {
 
 	// Use cached icon to avoid regeneration
 	icon := GetLayoutIcon(layout.ShortCode)
-	systray.SetIcon(icon)
+	t.backend.SetIcon(icon)
 
 	// Build tooltip: layout info + detection keybinding (if available)
 	tooltip := layout.ShortCode + " - " + layout.LongName
@@ -387,7 +387,7 @@ func (t *Tray) applyLayout(layout LayoutInfo) {
 			tooltip += " (" + t.detectionInfo.Source + ")"
 		}
 	}
-	systray.SetTooltip(tooltip)
+	t.backend.SetTooltip(tooltip)
 }
 
 // UpdateDetectionStatus updates the tray icon and tooltip based on detection status.
@@ -405,49 +405,49 @@ func (t *Tray) applyDetectionStatus(info DetectionInfo) {
 		// Normal operation - restore layout icon if available, otherwise use KB icon
 		// Reset currentCode to force UpdateLayout to set proper icon
 		t.currentCode = ""
-		systray.SetIcon(kbIcon) // Default, will be updated by UpdateLayout if called
+		t.backend.SetIcon(kbIcon) // Default, will be updated by UpdateLayout if called
 		switch {
 		case info.KeyNames != "" && info.Source != "":
 			tooltip := fmt.Sprintf(strTooltipOK, info.KeyNames, info.Source)
-			systray.SetTitle(tooltip) // KDE shows Title as tooltip
-			systray.SetTooltip(tooltip)
+			t.backend.SetTitle(tooltip) // KDE shows Title as tooltip
+			t.backend.SetTooltip(tooltip)
 		case info.KeyNames != "":
 			tooltip := "gswitch: " + info.KeyNames
-			systray.SetTitle(tooltip)
-			systray.SetTooltip(tooltip)
+			t.backend.SetTitle(tooltip)
+			t.backend.SetTooltip(tooltip)
 		default:
-			systray.SetTitle("gswitch")
-			systray.SetTooltip("gswitch " + appVersion + " - Layout switcher")
+			t.backend.SetTitle("gswitch")
+			t.backend.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 		}
 
 	case TrayStatusNeedsConfig:
 		// Warning - show yellow icon
-		systray.SetIcon(GetWarningIcon())
-		systray.SetTitle(strTooltipNeedsConfig)
-		systray.SetTooltip(strTooltipNeedsConfig + "\n" + strTooltipClickConfig)
+		t.backend.SetIcon(GetWarningIcon())
+		t.backend.SetTitle(strTooltipNeedsConfig)
+		t.backend.SetTooltip(strTooltipNeedsConfig + "\n" + strTooltipClickConfig)
 
 	case TrayStatusServiceError:
 		// Service error - show red icon
-		systray.SetIcon(GetErrorIcon())
+		t.backend.SetIcon(GetErrorIcon())
 		if info.Error != "" {
 			tooltip := "gswitch: " + info.Error
-			systray.SetTitle(tooltip)
-			systray.SetTooltip(tooltip)
+			t.backend.SetTitle(tooltip)
+			t.backend.SetTooltip(tooltip)
 		} else {
-			systray.SetTitle(strTooltipServiceError)
-			systray.SetTooltip(strTooltipServiceError)
+			t.backend.SetTitle(strTooltipServiceError)
+			t.backend.SetTooltip(strTooltipServiceError)
 		}
 
 	case TrayStatusDetectError:
 		// Detection error - show red icon
-		systray.SetIcon(GetErrorIcon())
+		t.backend.SetIcon(GetErrorIcon())
 		if info.Error != "" {
 			tooltip := "gswitch: " + info.Error
-			systray.SetTitle(tooltip)
-			systray.SetTooltip(tooltip)
+			t.backend.SetTitle(tooltip)
+			t.backend.SetTooltip(tooltip)
 		} else {
-			systray.SetTitle(strTooltipDetectError)
-			systray.SetTooltip(strTooltipDetectError)
+			t.backend.SetTitle(strTooltipDetectError)
+			t.backend.SetTooltip(strTooltipDetectError)
 		}
 	}
 }

@@ -141,6 +141,13 @@ func GetCurrentLayouts(env *SessionEnv) ([]LayoutSpec, error) {
 		return layouts, nil
 	}
 
+	// Awesome owns the live XKB keymap directly. Desktop configuration files
+	// survive switching sessions, so a stale kxkbrc from an installed Plasma
+	// session must not override the keymap Awesome is actually using.
+	if detect.IsAwesomeSession(env) {
+		return getLayoutsFromXkb()
+	}
+
 	// Try KDE kxkbrc (works on both X11 and Wayland)
 	if layouts, err := getLayoutsFromKxkbrc(); err == nil && len(layouts) >= 2 {
 		return layouts, nil

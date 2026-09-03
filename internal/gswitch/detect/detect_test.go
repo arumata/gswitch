@@ -1593,6 +1593,17 @@ func TestIsGNOME_NoFallbackWhenEnvHasData(t *testing.T) {
 	}
 }
 
+func TestIsAwesomeSession(t *testing.T) {
+	t.Setenv("XDG_CURRENT_DESKTOP", "KDE")
+
+	if !IsAwesomeSession(&SessionEnv{XDGCurrentDesktop: "awesome"}) {
+		t.Fatal("expected Awesome session to be detected from SessionEnv")
+	}
+	if IsAwesomeSession(&SessionEnv{XDGCurrentDesktop: "KDE"}) {
+		t.Fatal("KDE SessionEnv must take precedence over process environment")
+	}
+}
+
 func TestDetectLayoutSwitchKeys_ProviderOrderOnGNOME(t *testing.T) {
 	// Set OS environment to simulate GNOME
 	t.Setenv("XDG_CURRENT_DESKTOP", "GNOME")

@@ -2,6 +2,7 @@
 package tray
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,7 +10,6 @@ import (
 	"sync"
 	"syscall"
 
-	"fyne.io/systray"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 )
@@ -18,11 +18,14 @@ import (
 type App struct {
 	mu sync.Mutex
 
-	tray           *Tray
-	layoutMonitor  *LayoutMonitor
-	settingsWindow *SettingsWindow
-	configWatcher  *ConfigWatcher
-	detectionInfo  DetectionInfo
+	backend         trayBackend
+	tray            *Tray
+	layoutMonitor   *LayoutMonitor
+	settingsWindow  *SettingsWindow
+	configWatcher   *ConfigWatcher
+	detectionInfo   DetectionInfo
+	discoveryCancel context.CancelFunc
+	quitting        bool
 
 	quitOnce sync.Once
 }
@@ -40,7 +43,7 @@ func New() *App {
 }
 
 // Run starts the application main loop.
-// It sets up signal handlers and runs the systray event loop.
+// It sets up signal handlers and runs the selected tray backend.
 func (a *App) Run() error {
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -48,6 +51,7 @@ func (a *App) Run() error {
 	defer signal.Stop(sigChan)
 
 	signalStop := make(chan struct{})
+	defer close(signalStop)
 
 	go func() {
 		select {
@@ -58,17 +62,41 @@ func (a *App) Run() error {
 		}
 	}()
 
-	// Create tray instance
+	discoveryContext, cancelDiscovery := context.WithCancel(context.Background())
 	a.mu.Lock()
-	a.tray = NewTray(a)
+	if a.quitting {
+		a.mu.Unlock()
+		cancelDiscovery()
+		return nil
+	}
+	a.discoveryCancel = cancelDiscovery
+	a.mu.Unlock()
+
+	backend, err := discoverTrayBackend(discoveryContext)
+	cancelDiscovery()
+
+	a.mu.Lock()
+	a.discoveryCancel = nil
+	if a.quitting {
+		a.mu.Unlock()
+		if backend != nil {
+			backend.Quit()
+		}
+		return nil
+	}
+	if err != nil {
+		a.mu.Unlock()
+		return err
+	}
+
+	// Create tray instance
+	a.backend = backend
+	a.tray = NewTray(a, backend)
 	tray := a.tray
 	a.mu.Unlock()
 
-	// Run systray (blocking)
-	systray.Run(tray.onReady, tray.onExit)
-	close(signalStop)
-
-	return nil
+	// Run the selected tray backend (blocking).
+	return backend.Run(tray.onReady, tray.onExit)
 }
 
 // onTrayReady is called when the tray is initialized and ready.
@@ -144,11 +172,17 @@ func (a *App) onLayoutChanged(layout LayoutInfo) {
 func (a *App) Quit() {
 	a.quitOnce.Do(func() {
 		a.mu.Lock()
+		a.quitting = true
+		backend := a.backend
+		discoveryCancel := a.discoveryCancel
 		layoutMonitor := a.layoutMonitor
 		configWatcher := a.configWatcher
 		a.layoutMonitor = nil
 		a.configWatcher = nil
 		a.mu.Unlock()
+		if discoveryCancel != nil {
+			discoveryCancel()
+		}
 
 		// Stop layout monitor
 		if layoutMonitor != nil {
@@ -158,7 +192,9 @@ func (a *App) Quit() {
 		if configWatcher != nil {
 			configWatcher.Stop()
 		}
-		systray.Quit()
+		if backend != nil {
+			backend.Quit()
+		}
 	})
 }
 

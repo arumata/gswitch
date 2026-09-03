@@ -22,9 +22,8 @@ func main() {
 
 	fmt.Println("Starting gswitch-tray...")
 
-	// The tray icon (fyne.io/systray) runs its own D-Bus StatusNotifier
-	// loop, while the settings window and dialogs need the GTK main loop.
-	// Run the systray loop in a goroutine and GTK on the main thread.
+	// Tray backend discovery and event handling run in a goroutine, while the
+	// settings window, dialogs, and XEmbed fallback use GTK on the main thread.
 	errChan := make(chan error, 1)
 	go func() {
 		err := app.Run()

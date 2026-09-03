@@ -3,6 +3,7 @@ package tray
 import (
 	"bufio"
 	"errors"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -109,12 +110,15 @@ func (m *LayoutMonitor) poll() {
 
 func (m *LayoutMonitor) updateCurrentLayout() {
 	var newLayout LayoutInfo
+	if isAwesomeSession() {
+		newLayout = m.getLayoutFromSetxkbmap()
+	}
 
 	// Try fcitx5 first (most common on modern systems), but only where it is
 	// the thing doing the switching. A fcitx5 holding a single input method
 	// answers that same method forever while XKB switches the real layout, and
 	// since the call succeeds the fallbacks below would never run.
-	if m.fcitx5OwnsSwitching() {
+	if newLayout.ShortCode == "" && m.fcitx5OwnsSwitching() {
 		if layout, ok := m.getLayoutFromFcitx5(); ok {
 			newLayout = layout
 		}
@@ -157,6 +161,9 @@ func (m *LayoutMonitor) updateCurrentLayout() {
 
 // loadLayouts loads the list of configured layouts from KDE DBus.
 func (m *LayoutMonitor) loadLayouts() ([]LayoutInfo, error) {
+	if isAwesomeSession() {
+		return m.loadLayoutsFromSetxkbmap()
+	}
 	cmd := exec.Command("gdbus", "call", "--session",
 		"--dest", "org.kde.keyboard",
 		"--object-path", "/Layouts",
@@ -168,6 +175,19 @@ func (m *LayoutMonitor) loadLayouts() ([]LayoutInfo, error) {
 	}
 
 	return parseKDELayoutsList(string(output)), nil
+}
+
+func isAwesomeSession() bool {
+	for _, value := range []string{
+		os.Getenv("XDG_CURRENT_DESKTOP"),
+		os.Getenv("XDG_SESSION_DESKTOP"),
+		os.Getenv("DESKTOP_SESSION"),
+	} {
+		if strings.Contains(strings.ToLower(value), "awesome") {
+			return true
+		}
+	}
+	return false
 }
 
 // loadLayoutsFromSetxkbmap loads layouts from setxkbmap -query.
@@ -328,6 +348,10 @@ func (m *LayoutMonitor) getLayoutFromSetxkbmap() LayoutInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	group, err := currentXKBGroup()
+	if err == nil && group >= 0 && group < len(m.layouts) {
+		return m.layouts[group]
+	}
 	if len(m.layouts) > 0 {
 		return m.layouts[0]
 	}

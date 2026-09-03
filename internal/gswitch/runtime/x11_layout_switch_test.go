@@ -96,6 +96,30 @@ func TestTriggerAndConfirmLayoutSwitchRetriesMissedTransitionOnce(t *testing.T) 
 	}
 }
 
+func TestTriggerAndConfirmLayoutSwitchRetriesTwoMissedTransitions(t *testing.T) {
+	reader := &fakeLayoutGroupReader{groups: []uint8{0, 0, 0, 0, 0, 1}}
+	var emitted []KeyEvent
+
+	err := triggerAndConfirmLayoutSwitch(
+		reader,
+		[]uint16{186},
+		func(event KeyEvent) error {
+			emitted = append(emitted, event)
+			return nil
+		},
+		layoutSwitchAttempts,
+		2,
+		60*time.Millisecond,
+		func(time.Duration) {},
+	)
+	if err != nil {
+		t.Fatalf("triggerAndConfirmLayoutSwitch() error = %v", err)
+	}
+	if len(emitted) != 6 {
+		t.Fatalf("emitted %d events, want three key pairs", len(emitted))
+	}
+}
+
 func TestTriggerAndConfirmLayoutSwitchFailsBeforeTextMutation(t *testing.T) {
 	reader := &fakeLayoutGroupReader{groups: []uint8{0, 0, 0, 0, 0}}
 	var emitted []KeyEvent

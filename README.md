@@ -188,12 +188,34 @@ gswitch --detect-layout-switch     # detect layout-switch hotkey, JSON output
 
 ### Tray application
 
-`gswitch-tray` shows the service status in the system tray and provides a
-settings window (trigger key capture, delays, service start/stop). It controls
-the daemon through `systemctl --user`; polkit is used only when writing the
-system config.
+`gswitch-tray` is optional. It shows the service status in the system tray and
+provides a settings window (trigger key capture, delays, service start/stop).
+It controls the daemon through `systemctl --user`; polkit is used only when
+writing the system config.
+
+It selects the desktop's native tray protocol automatically: StatusNotifierItem
+on KDE, GNOME with an AppIndicator extension, and other SNI hosts; XEmbed on
+X11 desktops such as Awesome 4.3. StatusNotifierItem is preferred when both
+hosts are available.
 
 <img src="assets/tray-settings.png" width="400" alt="gswitch settings with US and Spanish layouts">
+
+#### Running without a tray host
+
+If the desktop provides neither StatusNotifierItem nor XEmbed, `gswitch-tray`
+exits with a diagnostic message instead of remaining invisibly active.
+
+The daemon does not depend on the tray. With an installed package, configure
+and run it directly:
+
+```bash
+sudo gswitch -c
+systemctl --user enable --now gswitch.service
+systemctl --user status gswitch.service --no-pager
+```
+
+Only the configuration command needs `sudo`; the daemon runs as the graphical
+user.
 
 To disable its autostart, create `~/.config/autostart/gswitch-tray.desktop` containing:
 

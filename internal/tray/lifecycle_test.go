@@ -56,6 +56,34 @@ func TestOnSettingsClickedUsesGTKMainThread(t *testing.T) {
 	}
 }
 
+func TestXEmbedQuitBeforeRunSkipsReadyCallback(t *testing.T) {
+	originalSchedule := scheduleGTK
+	defer func() { scheduleGTK = originalSchedule }()
+	scheduleGTK = func(fn func()) {
+		fn()
+	}
+
+	backend := newXEmbedBackend()
+	defer backend.deleteHandle()
+	backend.Quit()
+
+	readyCalled := false
+	exitCalled := false
+	err := backend.Run(
+		func() { readyCalled = true },
+		func() { exitCalled = true },
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if readyCalled {
+		t.Fatal("Run() called onReady after Quit")
+	}
+	if !exitCalled {
+		t.Fatal("Run() did not call onExit after Quit")
+	}
+}
+
 func TestConfigWatcherStopIdempotent(_ *testing.T) {
 	w := NewConfigWatcher(nil)
 	w.Stop()

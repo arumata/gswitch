@@ -30,9 +30,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            awesome \
             libgtk-3-dev \
             libxkbcommon-dev \
-            libx11-dev
+            libx11-dev \
+            x11-utils \
+            xdotool \
+            xvfb
 
       - name: Build
         run: go build ./...
@@ -42,6 +46,12 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Test Awesome tray
+        run: |
+          mkdir -p builds
+          go build -o builds/gswitch-tray ./cmd/gswitch-tray
+          NO_AT_BRIDGE=1 xvfb-run -a python3 .github/scripts/tray_awesome_smoke.py --tray ./builds/gswitch-tray
 
   lint:
     runs-on: ubuntu-24.04

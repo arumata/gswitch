@@ -58,6 +58,13 @@ esac
 	if err := os.Chmod(loginctlPath, 0o750); err != nil { //nolint:gosec // Test fixture must be executable.
 		t.Fatal(err)
 	}
+	setxkbmapPath := filepath.Join(binDir, "setxkbmap")
+	if err := os.WriteFile(setxkbmapPath, []byte("#!/bin/sh\nprintf 'layout: us,de\\n'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(setxkbmapPath, 0o750); err != nil { //nolint:gosec // Test fixture must be executable.
+		t.Fatal(err)
+	}
 	t.Setenv("HOME", tmp)
 	t.Setenv("PATH", binDir)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -73,6 +80,7 @@ esac
 	}{
 		{desktop: "GNOME", want: []LayoutSpec{{Name: "us"}, {Name: "ua"}}},
 		{desktop: "KDE", want: []LayoutSpec{{Name: "us"}, {Name: "ru"}}},
+		{desktop: "awesome", want: []LayoutSpec{{Name: "us"}, {Name: "de"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.desktop, func(t *testing.T) {

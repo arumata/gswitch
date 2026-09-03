@@ -267,7 +267,9 @@ func getDefaultProviders() []Provider {
 
 // getProviderBySource returns a provider for explicit source selection.
 // Returns nil for unknown sources.
-func getProviderBySource(source DetectionSource) Provider { //nolint:ireturn // runtime-selected provider factory
+//
+//nolint:ireturn // Runtime selection requires the common provider interface.
+func getProviderBySource(source DetectionSource) Provider {
 	switch source {
 	case SourceXKB:
 		return &xkbProvider{}
@@ -1044,12 +1046,16 @@ func resolveConfigDirFromOSEnv() string {
 }
 
 // NewXKBProvider creates a new XKB provider instance.
-func NewXKBProvider() Provider { //nolint:ireturn // public provider factory
+//
+//nolint:ireturn // Public factory exposes provider behavior, not implementation.
+func NewXKBProvider() Provider {
 	return &xkbProvider{}
 }
 
 // NewKDEProvider creates a new KDE provider instance.
-func NewKDEProvider() Provider { //nolint:ireturn // public provider factory
+//
+//nolint:ireturn // Public factory exposes provider behavior, not implementation.
+func NewKDEProvider() Provider {
 	return &kdeProvider{}
 }
 
@@ -1278,7 +1284,9 @@ func parseGNOMEAccelerator(accel string) ([]uint16, string, error) {
 }
 
 // NewGNOMEProvider creates a new GNOME provider instance.
-func NewGNOMEProvider() Provider { //nolint:ireturn // public provider factory
+//
+//nolint:ireturn // Public factory exposes provider behavior, not implementation.
+func NewGNOMEProvider() Provider {
 	return &gnomeProvider{}
 }
 
@@ -1375,15 +1383,7 @@ func BuildDetectJSONOutput(result *DetectionResult, err error) *DetectJSONOutput
 	return output
 }
 
-// isGNOME checks if the current desktop environment is GNOME.
-// It checks multiple environment variables to handle different GNOME variants:
-// - XDG_CURRENT_DESKTOP: "ubuntu:GNOME", "GNOME", "GNOME-Classic:GNOME"
-// - XDG_SESSION_DESKTOP: "gnome"
-// - DESKTOP_SESSION: "gnome" (legacy)
-//
-// When env is provided (root context), uses values from SessionEnv.
-// Falls back to os.Getenv() ONLY when env is nil or all DE fields are empty.
-func isGNOME(env *SessionEnv) bool {
+func isDesktopSession(env *SessionEnv, desktop string) bool {
 	// Check SessionEnv first if provided
 	if env != nil {
 		candidates := []string{
@@ -1399,7 +1399,7 @@ func isGNOME(env *SessionEnv) bool {
 				hasEnvData = true
 				// XDG_CURRENT_DESKTOP can be "ubuntu:GNOME" or "GNOME-Classic"
 				lower := strings.ToLower(val)
-				if strings.Contains(lower, "gnome") {
+				if strings.Contains(lower, desktop) {
 					return true
 				}
 			}
@@ -1424,15 +1424,26 @@ func isGNOME(env *SessionEnv) bool {
 			continue
 		}
 		lower := strings.ToLower(val)
-		if strings.Contains(lower, "gnome") {
+		if strings.Contains(lower, desktop) {
 			return true
 		}
 	}
 	return false
 }
 
+// isGNOME checks if the current desktop environment is GNOME.
+// When env is provided (root context), it takes precedence over process env.
+func isGNOME(env *SessionEnv) bool {
+	return isDesktopSession(env, "gnome")
+}
+
 // IsGNOMESession reports whether env (or the current process environment when
 // env is nil) belongs to a GNOME graphical session.
 func IsGNOMESession(env *SessionEnv) bool {
 	return isGNOME(env)
+}
+
+// IsAwesomeSession reports whether the active graphical session is Awesome.
+func IsAwesomeSession(env *SessionEnv) bool {
+	return isDesktopSession(env, "awesome")
 }

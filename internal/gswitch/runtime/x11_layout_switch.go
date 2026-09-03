@@ -15,7 +15,7 @@ const (
 	xkbGetStateOpcode       = 4
 	xkbUseCoreKeyboard      = 0x0100
 	xkbProtocolMajor        = 1
-	layoutSwitchAttempts    = 2
+	layoutSwitchAttempts    = 3
 	layoutGroupPollAttempts = 200
 	layoutGroupPollDelay    = 10 * time.Millisecond
 )

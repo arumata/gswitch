@@ -88,6 +88,32 @@ model:      pc104`,
 	}
 }
 
+func TestGetLayoutFromSetxkbmapUsesCurrentGroup(t *testing.T) {
+	m := NewLayoutMonitor(nil)
+	m.layouts = []LayoutInfo{
+		{ShortCode: "US", LongName: "English (US)"},
+		{ShortCode: "RU", LongName: "Russian"},
+	}
+
+	original := currentXKBGroup
+	currentXKBGroup = func() (int, error) { return 1, nil }
+	t.Cleanup(func() { currentXKBGroup = original })
+
+	if got := m.getLayoutFromSetxkbmap(); got.ShortCode != "RU" {
+		t.Fatalf("getLayoutFromSetxkbmap() = %q, want RU", got.ShortCode)
+	}
+}
+
+func TestAwesomeSessionDetection(t *testing.T) {
+	t.Setenv("XDG_CURRENT_DESKTOP", "awesome")
+	t.Setenv("XDG_SESSION_DESKTOP", "")
+	t.Setenv("DESKTOP_SESSION", "")
+
+	if !isAwesomeSession() {
+		t.Fatal("expected Awesome desktop environment to be detected")
+	}
+}
+
 func TestParseKDELayoutsList(t *testing.T) {
 	tests := []struct {
 		name     string
