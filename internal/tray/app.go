@@ -223,6 +223,16 @@ func (a *App) UpdateServiceStatus() {
 	}
 }
 
+// UpdateTrayIconMode applies a persisted user preference through the tray UI queue.
+func (a *App) UpdateTrayIconMode(mode TrayIconMode) {
+	a.mu.Lock()
+	tray := a.tray
+	a.mu.Unlock()
+	if tray != nil {
+		tray.UpdateIconMode(mode)
+	}
+}
+
 // RefreshDetectionStatus re-checks detection status and updates the tray.
 func (a *App) RefreshDetectionStatus() {
 	a.mu.Lock()

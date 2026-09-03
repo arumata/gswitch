@@ -13,6 +13,7 @@ const (
 	strSectionService = "Service"
 	strSectionKeys    = "Keys"
 	strSectionLayouts = "Layouts"
+	strSectionTray    = "Tray"
 	strSectionDelays  = "Delays"
 	strSectionDevices = "Devices"
 )
@@ -62,14 +63,15 @@ const (
 
 // Error messages
 const (
-	strErrorTitle         = "Error"
-	strErrorRestartFailed = "Failed to restart service"
-	strErrorStartFailed   = "Failed to start service"
-	strErrorStopFailed    = "Failed to stop service"
-	strErrorEnableFailed  = "Failed to enable autostart"
-	strErrorDisableFailed = "Failed to disable autostart"
-	strErrorValidation    = "Validation error"
-	strErrorSaveFailed    = "Failed to save settings"
+	strErrorTitle          = "Error"
+	strErrorRestartFailed  = "Failed to restart service"
+	strErrorStartFailed    = "Failed to start service"
+	strErrorStopFailed     = "Failed to stop service"
+	strErrorEnableFailed   = "Failed to enable autostart"
+	strErrorDisableFailed  = "Failed to disable autostart"
+	strErrorValidation     = "Validation error"
+	strErrorSaveFailed     = "Failed to save settings"
+	strErrorTraySaveFailed = "Failed to save tray icon setting"
 )
 
 // Warning messages
@@ -122,6 +124,18 @@ const (
 // Layout options
 var layoutOptions = []string{
 	"us", "ru", "ua", "de", "fr", "es", "it", "pt", "pl", "cz", "sk", "hu",
+}
+
+// Tray section
+const strLabelTrayIcon = "Tray icon:"
+
+var trayIconModeOptions = []struct {
+	Label string
+	Value TrayIconMode
+}{
+	{"Application icon", TrayIconModeApp},
+	{"Application icon with flag", TrayIconModeAppWithFlag},
+	{"Flag", TrayIconModeFlag},
 }
 
 // Delays section

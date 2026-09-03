@@ -5,13 +5,19 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"strings"
+	"sync"
 
 	"github.com/arumata/gswitch/internal/tray/assets"
 )
 
-const iconSize = 22
+// iconSize is a high-resolution source raster. Tray hosts scale it to their
+// available panel size, preserving detail on HiDPI displays.
+const iconSize = 48
+
+const layoutIconSize = 22
 
 // letterPatterns defines pixel patterns for uppercase letters.
 // Each pattern is a list of (x, y) coordinates relative to the letter's top-left.
@@ -181,11 +187,11 @@ var letterPatterns = map[rune][][2]int{
 
 // GenerateLayoutIcon creates a 22x22 icon with the given 2-letter layout code.
 func GenerateLayoutIcon(code string) []byte {
-	img := image.NewRGBA(image.Rect(0, 0, iconSize, iconSize))
+	img := image.NewRGBA(image.Rect(0, 0, layoutIconSize, layoutIconSize))
 
 	// Fill with transparent background
-	for y := range iconSize {
-		for x := range iconSize {
+	for y := range layoutIconSize {
+		for x := range layoutIconSize {
 			img.Set(x, y, color.Transparent)
 		}
 	}
@@ -205,7 +211,7 @@ func GenerateLayoutIcon(code string) []byte {
 			for _, p := range pattern {
 				x := positions[i] + p[0]
 				y := 5 + p[1] // vertical offset
-				if x < iconSize && y < iconSize {
+				if x < layoutIconSize && y < layoutIconSize {
 					img.Set(x, y, white)
 				}
 			}
@@ -219,11 +225,14 @@ func GenerateLayoutIcon(code string) []byte {
 
 // Pre-generated icons for common layouts (avoids regeneration on each switch)
 var (
-	kbIcon      = GenerateLayoutIcon("KB")
-	warningIcon = generateWarningIcon()
-	errorIcon   = generateErrorIcon()
-	iconCache   = make(map[string][]byte)
-	flagCache   = make(map[string][]byte)
+	warningIcon      = generateWarningIcon()
+	errorIcon        = generateErrorIcon()
+	flagCache        = make(map[string][]byte)
+	displayFlagCache = make(map[string][]byte)
+	overlayCache     = make(map[string][]byte)
+	iconCacheMu      sync.Mutex
+	appIcon          = assets.AppIcon
+	appImage         image.Image
 )
 
 // generateWarningIcon creates a 22x22 warning icon (yellow exclamation mark).
@@ -255,14 +264,14 @@ func generateWarningIcon() []byte {
 
 	// Draw exclamation mark "!" in black
 	// Vertical line (top part)
-	for y := 5; y <= 13; y++ {
-		img.Set(10, y, black)
-		img.Set(11, y, black)
+	for y := iconSize * 5 / 22; y <= iconSize*13/22; y++ {
+		img.Set(iconSize/2-1, y, black)
+		img.Set(iconSize/2, y, black)
 	}
 	// Dot (bottom part)
-	for y := 15; y <= 17; y++ {
-		img.Set(10, y, black)
-		img.Set(11, y, black)
+	for y := iconSize * 15 / 22; y <= iconSize*17/22; y++ {
+		img.Set(iconSize/2-1, y, black)
+		img.Set(iconSize/2, y, black)
 	}
 
 	var buf bytes.Buffer
@@ -299,17 +308,18 @@ func generateErrorIcon() []byte {
 
 	// Draw X mark in white
 	// Diagonal from top-left to bottom-right
-	for i := range 10 {
-		x := 6 + i
-		y := 6 + i
+	margin := iconSize * 6 / 22
+	for i := range iconSize - 2*margin {
+		x := margin + i
+		y := margin + i
 		img.Set(x, y, white)
 		img.Set(x+1, y, white)
 		img.Set(x, y+1, white)
 	}
 	// Diagonal from top-right to bottom-left
-	for i := range 10 {
-		x := 15 - i
-		y := 6 + i
+	for i := range iconSize - 2*margin {
+		x := iconSize - margin - 1 - i
+		y := margin + i
 		img.Set(x, y, white)
 		img.Set(x-1, y, white)
 		img.Set(x, y+1, white)
@@ -330,29 +340,11 @@ func GetErrorIcon() []byte {
 	return errorIcon
 }
 
-// GetLayoutIcon returns a cached icon for the given layout code.
-// It first tries to load a flag icon, falling back to text icon if not found.
-func GetLayoutIcon(code string) []byte {
-	if icon, ok := iconCache[code]; ok {
-		return icon
-	}
-
-	// Try to load flag icon first
-	icon := loadFlagIcon(strings.ToLower(code))
-	if icon != nil {
-		iconCache[code] = icon
-		return icon
-	}
-
-	// Fallback to text icon
-	icon = GenerateLayoutIcon(code)
-	iconCache[code] = icon
-	return icon
-}
-
 // loadFlagIcon loads a flag icon from embedded assets.
 // Returns nil if the flag is not found.
 func loadFlagIcon(code string) []byte {
+	iconCacheMu.Lock()
+	defer iconCacheMu.Unlock()
 	if icon, ok := flagCache[code]; ok {
 		return icon
 	}
@@ -366,6 +358,118 @@ func loadFlagIcon(code string) []byte {
 	return data
 }
 
+func GetNormalIcon(mode TrayIconMode, code string) []byte {
+	switch normalizeTrayIconMode(mode) {
+	case TrayIconModeFlag:
+		if flag := getDisplayFlagIcon(code); flag != nil {
+			return flag
+		}
+	case TrayIconModeAppWithFlag:
+		if icon := getOverlayIcon(code); icon != nil {
+			return icon
+		}
+	}
+	return appIcon
+}
+
+func getOverlayIcon(code string) []byte {
+	key := strings.ToLower(code)
+	iconCacheMu.Lock()
+	if icon, ok := overlayCache[key]; ok {
+		iconCacheMu.Unlock()
+		return icon
+	}
+	iconCacheMu.Unlock()
+
+	flag := GetFlagIcon(code)
+	if flag == nil {
+		return nil
+	}
+	flagImage, err := png.Decode(bytes.NewReader(flag))
+	if err != nil {
+		return nil
+	}
+	base, err := applicationImage()
+	if err != nil {
+		return nil
+	}
+	combined := image.NewRGBA(image.Rect(0, 0, iconSize, iconSize))
+	draw.Draw(combined, combined.Bounds(), base, base.Bounds().Min, draw.Src)
+
+	const flagWidth, flagHeight = 22, 15
+	flagRect := image.Rect(iconSize-flagWidth, iconSize-flagHeight, iconSize, iconSize)
+	backing := flagRect.Inset(-2).Intersect(combined.Bounds())
+	draw.Draw(combined, backing, &image.Uniform{C: color.RGBA{20, 20, 20, 255}}, image.Point{}, draw.Src)
+	draw.Draw(combined, flagRect, scaleNearest(flagImage, flagWidth, flagHeight), image.Point{}, draw.Src)
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, combined); err != nil {
+		return nil
+	}
+	icon := encoded.Bytes()
+	iconCacheMu.Lock()
+	overlayCache[key] = icon
+	iconCacheMu.Unlock()
+	return icon
+}
+
+func getDisplayFlagIcon(code string) []byte {
+	key := strings.ToLower(code)
+	iconCacheMu.Lock()
+	if icon, ok := displayFlagCache[key]; ok {
+		iconCacheMu.Unlock()
+		return icon
+	}
+	iconCacheMu.Unlock()
+
+	flag := GetFlagIcon(code)
+	if flag == nil {
+		return nil
+	}
+	decoded, err := png.Decode(bytes.NewReader(flag))
+	if err != nil {
+		return nil
+	}
+	width := iconSize
+	height := decoded.Bounds().Dy() * width / decoded.Bounds().Dx()
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, scaleNearest(decoded, width, height)); err != nil {
+		return nil
+	}
+	icon := encoded.Bytes()
+	iconCacheMu.Lock()
+	displayFlagCache[key] = icon
+	iconCacheMu.Unlock()
+	return icon
+}
+
+func applicationImage() (image.Image, error) {
+	iconCacheMu.Lock()
+	defer iconCacheMu.Unlock()
+	if appImage != nil {
+		return appImage, nil
+	}
+	decoded, err := png.Decode(bytes.NewReader(appIcon))
+	if err != nil {
+		return nil, err
+	}
+	appImage = decoded
+	return appImage, nil
+}
+
+func scaleNearest(source image.Image, width, height int) image.Image {
+	result := image.NewRGBA(image.Rect(0, 0, width, height))
+	bounds := source.Bounds()
+	for y := range height {
+		for x := range width {
+			sx := bounds.Min.X + x*bounds.Dx()/width
+			sy := bounds.Min.Y + y*bounds.Dy()/height
+			result.Set(x, y, source.At(sx, sy))
+		}
+	}
+	return result
+}
+
 // GetFlagIcon returns a flag icon for the layout code, or nil if not found.
 func GetFlagIcon(code string) []byte {
 	return loadFlagIcon(strings.ToLower(code))
@@ -377,11 +481,13 @@ func HasFlagIcon(code string) bool {
 }
 
 func init() {
+	if _, err := applicationImage(); err != nil {
+		panic(fmt.Sprintf("decode embedded application icon: %v", err))
+	}
 	// Pre-cache flag icons for common layouts
 	for _, code := range []string{"us", "ru", "de", "fr", "es", "it", "ua", "pl", "gb", "pt"} {
 		if data, err := assets.FlagsFS.ReadFile(fmt.Sprintf("flags/%s.png", code)); err == nil {
 			flagCache[code] = data
-			iconCache[strings.ToUpper(code)] = data
 		}
 	}
 }

@@ -55,7 +55,8 @@ without browser extensions, editor plugins, or toolkit-specific integration.
 - **Ready-to-install, auditable releases.** Tagged releases include x86-64
   DEB, RPM, and tar.gz artifacts with checksums. The source is MIT-licensed.
 - **Tray and custom trigger.** The tray shows status, edits settings, controls
-  the user service, and offers Pause/Break and Scroll Lock presets or another
+  the user service, lets you choose an application icon, flag, or application
+  icon with a flag, and offers Pause/Break and Scroll Lock presets or another
   single correction key.
 
 ## How It Works
@@ -192,6 +193,19 @@ gswitch --detect-layout-switch     # detect layout-switch hotkey, JSON output
 provides a settings window (trigger key capture, delays, service start/stop).
 It controls the daemon through `systemctl --user`; polkit is used only when
 writing the system config.
+
+The **Tray** section of Settings selects the normal icon display:
+
+- **Application icon** (default)
+- **Application icon with flag** for the active layout
+- **Flag** for the active layout
+
+The selection takes effect immediately and is stored per user in
+`~/.config/gswitch/tray.conf` as `tray-icon-mode=app`, `app-with-flag`, or
+`flag`. It does not require `pkexec`, restart the daemon, or modify
+`/etc/gswitch/default.conf`. If a layout has no bundled flag, gswitch uses the
+application icon. Configuration and detection warnings always replace the
+normal icon until the tray returns to an OK status.
 
 It selects the desktop's native tray protocol automatically: StatusNotifierItem
 on KDE, GNOME with an AppIndicator extension, and other SNI hosts; XEmbed on

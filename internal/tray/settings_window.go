@@ -40,9 +40,10 @@ type SettingsWindow struct {
 	detectionPendingRerun bool           // Schedule rerun after in-flight detection completes
 
 	// Layouts section widgets
-	autoDetectCheck *gtk.CheckButton
-	layout1Combo    *gtk.ComboBoxText
-	layout2Combo    *gtk.ComboBoxText
+	autoDetectCheck   *gtk.CheckButton
+	layout1Combo      *gtk.ComboBoxText
+	layout2Combo      *gtk.ComboBoxText
+	trayIconModeCombo *gtk.ComboBoxText
 
 	// Delays section widgets
 	delayBetweenSpin *gtk.SpinButton
@@ -52,6 +53,7 @@ type SettingsWindow struct {
 	devicesBox       *gtk.Box
 	deviceCheckboxes map[string]*gtk.CheckButton // UID -> checkbox
 	deviceManager    *DeviceManager
+	loadedConfig     *TrayConfig
 }
 
 // NewSettingsWindow creates a new settings window.
@@ -131,6 +133,12 @@ func (w *SettingsWindow) build() error {
 		return fmt.Errorf("failed to create layouts section: %w", err)
 	}
 	mainBox.PackStart(layoutsFrame, false, false, 0)
+
+	trayFrame, err := w.createTraySection()
+	if err != nil {
+		return fmt.Errorf("failed to create tray section: %w", err)
+	}
+	mainBox.PackStart(trayFrame, false, false, 0)
 
 	delaysFrame, err := w.createDelaysSection()
 	if err != nil {
@@ -387,6 +395,43 @@ func (w *SettingsWindow) createLayoutsSection() (*gtk.Frame, error) {
 	return frame, nil
 }
 
+func (w *SettingsWindow) createTraySection() (*gtk.Frame, error) {
+	frame, err := gtk.FrameNew(strSectionTray)
+	if err != nil {
+		return nil, err
+	}
+	grid, err := gtk.GridNew()
+	if err != nil {
+		return nil, err
+	}
+	grid.SetColumnSpacing(10)
+	grid.SetMarginTop(10)
+	grid.SetMarginBottom(10)
+	grid.SetMarginStart(10)
+	grid.SetMarginEnd(10)
+
+	label, err := gtk.LabelNew(strLabelTrayIcon)
+	if err != nil {
+		return nil, err
+	}
+	label.SetHAlign(gtk.ALIGN_START)
+	grid.Attach(label, 0, 0, 1, 1)
+
+	w.trayIconModeCombo, err = gtk.ComboBoxTextNew()
+	if err != nil {
+		return nil, err
+	}
+	for _, option := range trayIconModeOptions {
+		w.trayIconModeCombo.AppendText(option.Label)
+	}
+	w.trayIconModeCombo.SetActive(0)
+	w.trayIconModeCombo.SetHExpand(true)
+	grid.Attach(w.trayIconModeCombo, 1, 0, 1, 1)
+
+	frame.Add(grid)
+	return frame, nil
+}
+
 // createDelaysSection creates the "Delays" section.
 func (w *SettingsWindow) createDelaysSection() (*gtk.Frame, error) {
 	frame, err := gtk.FrameNew(strSectionDelays)
@@ -541,6 +586,7 @@ func (w *SettingsWindow) Show() {
 // loadConfig reads the configuration file and populates widgets.
 func (w *SettingsWindow) loadConfig() {
 	cfg := LoadTrayConfig()
+	w.loadedConfig = cloneTrayConfig(cfg)
 
 	// Use ignoreComboChanged to prevent triggering detection during programmatic SetActive
 	w.ignoreComboChanged = true
@@ -555,6 +601,7 @@ func (w *SettingsWindow) loadConfig() {
 	// Set layout combos
 	w.setLayoutComboByValue(w.layout1Combo, cfg.Layout1)
 	w.setLayoutComboByValue(w.layout2Combo, cfg.Layout2)
+	w.setTrayIconMode(LoadTrayIconMode())
 
 	// Set delay values
 	w.delayBetweenSpin.SetValue(float64(cfg.Delay))
@@ -568,6 +615,25 @@ func (w *SettingsWindow) loadConfig() {
 	glib.IdleAdd(func() {
 		w.updateDetectionStatusAsync()
 	})
+}
+
+func (w *SettingsWindow) setTrayIconMode(mode TrayIconMode) {
+	mode = normalizeTrayIconMode(mode)
+	for i, option := range trayIconModeOptions {
+		if option.Value == mode {
+			w.trayIconModeCombo.SetActive(i)
+			return
+		}
+	}
+	w.trayIconModeCombo.SetActive(0)
+}
+
+func (w *SettingsWindow) trayIconMode() (TrayIconMode, error) {
+	index := w.trayIconModeCombo.GetActive()
+	if index < 0 || index >= len(trayIconModeOptions) {
+		return DefaultTrayIconMode, errors.New("invalid tray icon selection")
+	}
+	return trayIconModeOptions[index].Value, nil
 }
 
 // loadDevices populates the devices section with checkboxes.
@@ -939,10 +1005,16 @@ func (w *SettingsWindow) onApplyClicked() {
 		w.showErrorDialog(strErrorValidation, err.Error())
 		return
 	}
+	iconMode, err := w.trayIconMode()
+	if err != nil {
+		w.showErrorDialog(strErrorValidation, err.Error())
+		return
+	}
+	daemonConfigChanged := w.loadedConfig == nil || !sameTrayConfig(cfg, w.loadedConfig)
 
 	// Check auto-detect status before saving
 	layoutSwitchIdx := w.layoutSwitchCombo.GetActive()
-	if layoutSwitchIdx >= 0 && layoutSwitchIdx < len(layoutSwitchOptions) &&
+	if daemonConfigChanged && layoutSwitchIdx >= 0 && layoutSwitchIdx < len(layoutSwitchOptions) &&
 		layoutSwitchOptions[layoutSwitchIdx].Value == "auto" {
 		// Get detection info from cache or run detection
 		var info DetectionInfo
@@ -966,8 +1038,26 @@ func (w *SettingsWindow) onApplyClicked() {
 		}
 	}
 
-	// Save config via pkexec
 	go func() {
+		traySaveErr := SaveTrayIconMode(iconMode)
+		if traySaveErr != nil {
+			glib.IdleAdd(func() {
+				w.showErrorDialog(strErrorTraySaveFailed, traySaveErr.Error())
+			})
+			return
+		}
+		if w.app != nil {
+			w.app.UpdateTrayIconMode(iconMode)
+		}
+
+		if !daemonConfigChanged {
+			glib.IdleAdd(func() {
+				w.Hide()
+			})
+			return
+		}
+
+		// Save daemon settings only when they changed.
 		saveErr := w.saveConfig(cfg)
 		var restartErr error
 		if saveErr == nil {
@@ -982,7 +1072,6 @@ func (w *SettingsWindow) onApplyClicked() {
 				}
 				return
 			}
-
 			if restartErr != nil {
 				if !errors.Is(restartErr, ErrUserCanceled) {
 					// Show warning but don't block - config was saved
@@ -999,6 +1088,37 @@ func (w *SettingsWindow) onApplyClicked() {
 			w.Hide()
 		})
 	}()
+}
+
+func cloneTrayConfig(cfg *TrayConfig) *TrayConfig {
+	clone := *cfg
+	clone.Blacklist = append([]string(nil), cfg.Blacklist...)
+	return &clone
+}
+
+func sameTrayConfig(left, right *TrayConfig) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	if left.LayoutSwitch != right.LayoutSwitch ||
+		left.ConvertKey != right.ConvertKey ||
+		left.Layout1 != right.Layout1 ||
+		left.Layout2 != right.Layout2 ||
+		left.Delay != right.Delay ||
+		left.LayoutSwitchDelay != right.LayoutSwitchDelay ||
+		len(left.Blacklist) != len(right.Blacklist) {
+		return false
+	}
+	entries := make(map[string]struct{}, len(left.Blacklist))
+	for _, entry := range left.Blacklist {
+		entries[entry] = struct{}{}
+	}
+	for _, entry := range right.Blacklist {
+		if _, ok := entries[entry]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // collectConfigValues collects configuration values from widgets.
