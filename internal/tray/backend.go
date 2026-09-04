@@ -1,5 +1,7 @@
 package tray
 
+const trayApplicationID = "gswitch"
+
 type trayMenuItem interface {
 	Clicks() <-chan struct{}
 	SetTitle(string)

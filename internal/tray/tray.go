@@ -101,10 +101,7 @@ func NewTray(app *App, backend trayBackend) *Tray {
 
 // onReady is called when the selected tray backend is ready.
 func (t *Tray) onReady() {
-	// Set initial icon (will be updated based on detection status and layout)
-	t.backend.SetIcon(kbIcon)
-	t.backend.SetTitle("")
-	t.backend.SetTooltip("gswitch " + appVersion + " - Layout switcher")
+	t.setInitialAppearance()
 
 	// Create service status menu items
 	t.mServiceStatus = t.backend.AddMenuItem(strTrayServiceUnknown, "Service status")
@@ -132,6 +129,13 @@ func (t *Tray) onReady() {
 
 	// Notify app that tray is ready
 	t.app.onTrayReady()
+}
+
+func (t *Tray) setInitialAppearance() {
+	// The StatusNotifier backend copies the initial title into its immutable Id.
+	t.backend.SetIcon(kbIcon)
+	t.backend.SetTitle(trayApplicationID)
+	t.backend.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 }
 
 // onExit is called when the selected tray backend is exiting.

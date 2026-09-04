@@ -17,6 +17,13 @@ func main() {
 	// Initialize GTK (required before creating any GTK widgets)
 	gtk.Init(nil)
 
+	// gotk3 runs its finalizers (g_object_unref) on the Go finalizer goroutine
+	// by default, i.e. off the GTK thread. Route them through the GTK main
+	// loop so garbage-collected wrappers never touch GTK concurrently.
+	glib.FinalizerStrategy = func(finalize glib.Finalizer) {
+		glib.IdleAdd(func() { finalize() })
+	}
+
 	tray.SetVersion(version)
 	app := tray.New()
 

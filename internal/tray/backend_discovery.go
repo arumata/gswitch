@@ -36,7 +36,7 @@ func discoverTrayBackend(parent context.Context) (trayBackend, error) {
 	switch kind {
 	case trayBackendStatusNotifier:
 		fmt.Println("Using StatusNotifier system tray backend")
-		return statusNotifierBackend{}, nil
+		return newStatusNotifierBackend(), nil
 	case trayBackendXEmbed:
 		fmt.Println("Using XEmbed system tray backend")
 		return newXEmbedBackend(), nil

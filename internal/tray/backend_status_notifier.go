@@ -2,14 +2,36 @@ package tray
 
 import "fyne.io/systray"
 
-type statusNotifierBackend struct{}
+type statusNotifierRuntime interface {
+	Run(onReady, onExit func())
+	SetTitle(string)
+}
+
+type systrayStatusNotifierRuntime struct{}
+
+func (systrayStatusNotifierRuntime) Run(onReady, onExit func()) {
+	systray.Run(onReady, onExit)
+}
+
+func (systrayStatusNotifierRuntime) SetTitle(title string) {
+	systray.SetTitle(title)
+}
+
+type statusNotifierBackend struct {
+	runtime statusNotifierRuntime
+}
 
 type statusNotifierMenuItem struct {
 	item *systray.MenuItem
 }
 
-func (statusNotifierBackend) Run(onReady, onExit func()) error {
-	systray.Run(onReady, onExit)
+func newStatusNotifierBackend() statusNotifierBackend {
+	return statusNotifierBackend{runtime: systrayStatusNotifierRuntime{}}
+}
+
+func (b statusNotifierBackend) Run(onReady, onExit func()) error {
+	b.runtime.SetTitle(trayApplicationID)
+	b.runtime.Run(onReady, onExit)
 	return nil
 }
 
@@ -21,8 +43,8 @@ func (statusNotifierBackend) SetIcon(icon []byte) {
 	systray.SetIcon(icon)
 }
 
-func (statusNotifierBackend) SetTitle(title string) {
-	systray.SetTitle(title)
+func (b statusNotifierBackend) SetTitle(title string) {
+	b.runtime.SetTitle(title)
 }
 
 func (statusNotifierBackend) SetTooltip(tooltip string) {

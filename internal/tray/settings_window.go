@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -44,8 +45,15 @@ type SettingsWindow struct {
 	layout1Combo    *gtk.ComboBoxText
 	layout2Combo    *gtk.ComboBoxText
 
-	// Delays section widgets
+	// Delays section widgets. The adjustments are kept alongside their spin
+	// buttons on purpose: gotk3 hands gtk_spin_button_new a raw pointer and
+	// the Go wrapper is otherwise dead by then, so the GC could finalize
+	// (unref) the adjustment inside the cgo call. That surfaced as
+	// "g_object_ref_sink: assertion 'G_IS_OBJECT (object)' failed" and, under
+	// G_DEBUG=fatal-criticals, as a SIGTRAP in the XEmbed release gate.
+	delayBetweenAdj  *gtk.Adjustment
 	delayBetweenSpin *gtk.SpinButton
+	delaySwitchAdj   *gtk.Adjustment
 	delaySwitchSpin  *gtk.SpinButton
 
 	// Devices section widgets
@@ -388,6 +396,14 @@ func (w *SettingsWindow) createLayoutsSection() (*gtk.Frame, error) {
 }
 
 // createDelaysSection creates the "Delays" section.
+// newSpinButton wraps gtk.SpinButtonNew and keeps the adjustment reachable
+// until the spin button holds its own reference; see the field comment.
+func newSpinButton(adjustment *gtk.Adjustment) (*gtk.SpinButton, error) {
+	spin, err := gtk.SpinButtonNew(adjustment, 1, 0)
+	runtime.KeepAlive(adjustment)
+	return spin, err
+}
+
 func (w *SettingsWindow) createDelaysSection() (*gtk.Frame, error) {
 	frame, err := gtk.FrameNew(strSectionDelays)
 	if err != nil {
@@ -414,11 +430,11 @@ func (w *SettingsWindow) createDelaysSection() (*gtk.Frame, error) {
 	grid.Attach(delayBetweenLabel, 0, 0, 1, 1)
 
 	// SpinButton: value, min, max, step, page, pageSize
-	delayBetweenAdj, err := gtk.AdjustmentNew(10, 0, 100, 1, 10, 0)
+	w.delayBetweenAdj, err = gtk.AdjustmentNew(10, 0, 100, 1, 10, 0)
 	if err != nil {
 		return nil, err
 	}
-	w.delayBetweenSpin, err = gtk.SpinButtonNew(delayBetweenAdj, 1, 0)
+	w.delayBetweenSpin, err = newSpinButton(w.delayBetweenAdj)
 	if err != nil {
 		return nil, err
 	}
@@ -440,11 +456,11 @@ func (w *SettingsWindow) createDelaysSection() (*gtk.Frame, error) {
 	delaySwitchLabel.SetHAlign(gtk.ALIGN_START)
 	grid.Attach(delaySwitchLabel, 0, 1, 1, 1)
 
-	delaySwitchAdj, err := gtk.AdjustmentNew(100, 0, 500, 1, 10, 0)
+	w.delaySwitchAdj, err = gtk.AdjustmentNew(100, 0, 500, 1, 10, 0)
 	if err != nil {
 		return nil, err
 	}
-	w.delaySwitchSpin, err = gtk.SpinButtonNew(delaySwitchAdj, 1, 0)
+	w.delaySwitchSpin, err = newSpinButton(w.delaySwitchAdj)
 	if err != nil {
 		return nil, err
 	}
