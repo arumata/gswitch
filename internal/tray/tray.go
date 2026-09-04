@@ -24,7 +24,9 @@ type Tray struct {
 	mQuit          trayMenuItem
 
 	// Current layout code (to avoid unnecessary icon updates)
-	currentCode string
+	currentCode  string
+	latestLayout *LayoutInfo
+	iconMode     TrayIconMode
 
 	// Current service status (to avoid unnecessary menu updates)
 	currentServiceStatus ServiceStatus
@@ -96,6 +98,7 @@ func NewTray(app *App, backend trayBackend) *Tray {
 		stopChan:       make(chan struct{}),
 		serviceOps:     make(chan serviceRequest, 8),
 		uiOps:          make(chan func(), 64),
+		iconMode:       LoadTrayIconMode(),
 	}
 }
 
@@ -133,7 +136,7 @@ func (t *Tray) onReady() {
 
 func (t *Tray) setInitialAppearance() {
 	// The StatusNotifier backend copies the initial title into its immutable Id.
-	t.backend.SetIcon(kbIcon)
+	t.backend.SetIcon(GetNormalIcon(TrayIconModeApp, ""))
 	t.backend.SetTitle(trayApplicationID)
 	t.backend.SetTooltip("gswitch " + appVersion + " - Layout switcher")
 }
@@ -368,6 +371,9 @@ func (t *Tray) flushPendingLayout() {
 }
 
 func (t *Tray) applyLayout(layout LayoutInfo) {
+	latestLayout := layout
+	t.latestLayout = &latestLayout
+
 	// Skip if layout hasn't changed
 	if t.currentCode == layout.ShortCode {
 		return
@@ -379,9 +385,7 @@ func (t *Tray) applyLayout(layout LayoutInfo) {
 		return
 	}
 
-	// Use cached icon to avoid regeneration
-	icon := GetLayoutIcon(layout.ShortCode)
-	t.backend.SetIcon(icon)
+	t.backend.SetIcon(t.normalIcon())
 
 	// Build tooltip: layout info + detection keybinding (if available)
 	tooltip := layout.ShortCode + " - " + layout.LongName
@@ -392,6 +396,27 @@ func (t *Tray) applyLayout(layout LayoutInfo) {
 		}
 	}
 	t.backend.SetTooltip(tooltip)
+}
+
+func (t *Tray) normalIcon() []byte {
+	if t.latestLayout == nil {
+		return GetNormalIcon(TrayIconModeApp, "")
+	}
+	return GetNormalIcon(t.iconMode, t.latestLayout.ShortCode)
+}
+
+// UpdateIconMode queues a normal-icon redraw without bypassing tray UI serialization.
+func (t *Tray) UpdateIconMode(mode TrayIconMode) {
+	t.enqueueUIReliable(func() {
+		t.applyIconMode(mode)
+	})
+}
+
+func (t *Tray) applyIconMode(mode TrayIconMode) {
+	t.iconMode = normalizeTrayIconMode(mode)
+	if t.detectionInfo.Status == TrayStatusOK {
+		t.backend.SetIcon(t.normalIcon())
+	}
 }
 
 // UpdateDetectionStatus updates the tray icon and tooltip based on detection status.
@@ -406,10 +431,10 @@ func (t *Tray) applyDetectionStatus(info DetectionInfo) {
 
 	switch info.Status {
 	case TrayStatusOK:
-		// Normal operation - restore layout icon if available, otherwise use KB icon
-		// Reset currentCode to force UpdateLayout to set proper icon
+		// Normal operation restores the latest selected display immediately.
+		t.backend.SetIcon(t.normalIcon())
+		// Force the next layout update to restore its layout-specific tooltip.
 		t.currentCode = ""
-		t.backend.SetIcon(kbIcon) // Default, will be updated by UpdateLayout if called
 		switch {
 		case info.KeyNames != "" && info.Source != "":
 			tooltip := fmt.Sprintf(strTooltipOK, info.KeyNames, info.Source)

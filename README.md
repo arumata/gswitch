@@ -54,9 +54,10 @@ without browser extensions, editor plugins, or toolkit-specific integration.
   user; udev/logind grants the active session access through `uaccess`.
 - **Ready-to-install, auditable releases.** Tagged releases include x86-64
   DEB, RPM, and tar.gz artifacts with checksums. The source is MIT-licensed.
-- **Tray and custom trigger.** The tray shows status, edits settings, controls
-  the user service, and offers Pause/Break and Scroll Lock presets or another
-  single correction key.
+- **Configurable tray icon and custom trigger.** The tray can show the active
+  layout flag, the application icon, or both. It also shows status, edits
+  settings, controls the user service, and offers Pause/Break and Scroll Lock
+  presets or another single correction key.
 
 ## How It Works
 
@@ -91,7 +92,7 @@ private reporting.
 ## Tested Environments
 
 The current release was verified with packaged binaries, synthetic keyboard
-input, and real desktop sessions in six combinations:
+input, and real desktop sessions in eight combinations:
 
 | Distribution | Desktop | Display server | Package |
 |---|---|---|---|
@@ -99,8 +100,10 @@ input, and real desktop sessions in six combinations:
 | Ubuntu 24.04 | GNOME 46 | X11 | DEB |
 | Ubuntu 24.04 | KDE Plasma 5.27 | Wayland | DEB |
 | Ubuntu 24.04 | KDE Plasma 5.27 | X11 | DEB |
+| Ubuntu 24.04 | Awesome 4.3 | X11 | DEB |
 | Fedora 44 | GNOME 50 | Wayland | RPM (SELinux enforcing) |
 | Fedora 44 | KDE Plasma 6.7 | Wayland | RPM (SELinux enforcing) |
+| RED OS 8.0.3 | KDE Plasma 5.27 | X11 | RPM (SELinux enforcing) |
 
 Each combination covers layout detection, word and phrase correction,
 immediate undo, selection conversion, selection case swap, the user service,
@@ -197,6 +200,18 @@ It selects the desktop's native tray protocol automatically: StatusNotifierItem
 on KDE, GNOME with an AppIndicator extension, and other SNI hosts; XEmbed on
 X11 desktops such as Awesome 4.3. StatusNotifierItem is preferred when both
 hosts are available.
+
+The **Tray** section in Settings controls the normal icon:
+
+- **Flag** shows the active layout and is the default.
+- **Application icon with flag** adds the active layout flag to the application
+  icon.
+- **Application icon** always shows the application icon.
+
+The choice takes effect immediately and is saved per user in
+`~/.config/gswitch/tray.conf`. It does not restart the daemon or change
+`/etc/gswitch/default.conf`. Warning and error icons temporarily replace the
+normal icon until the tray returns to an OK status.
 
 <img src="assets/tray-settings.png" width="400" alt="gswitch settings with US and Spanish layouts">
 

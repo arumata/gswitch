@@ -20,7 +20,8 @@ release as a single squashed commit. This has two practical consequences:
 
 Requirements: Go (version from `go.mod`), and for the tray application the
 GTK3 headers (`libgtk-3-dev`, `libxkbcommon-dev`, `libx11-dev` on
-Debian/Ubuntu).
+Debian/Ubuntu; `libgtk+3-devel`, `libgio-devel`, `libxkbcommon-devel`, and
+`libX11-devel` on ALT Linux).
 
 ```bash
 go build -o gswitch ./cmd/gswitch            # daemon

@@ -5,3 +5,6 @@ import "embed"
 
 //go:embed flags/*.png
 var FlagsFS embed.FS
+
+//go:embed gswitch.png
+var AppIcon []byte

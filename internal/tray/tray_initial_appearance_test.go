@@ -1,8 +1,12 @@
 package tray
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 type recordingTrayBackend struct {
+	icon    []byte
 	titles  []string
 	tooltip string
 }
@@ -15,7 +19,9 @@ func (*recordingTrayBackend) Run(onReady, onExit func()) error {
 
 func (*recordingTrayBackend) Quit() {}
 
-func (*recordingTrayBackend) SetIcon([]byte) {}
+func (b *recordingTrayBackend) SetIcon(icon []byte) {
+	b.icon = append(b.icon[:0], icon...)
+}
 
 func (b *recordingTrayBackend) SetTitle(title string) {
 	b.titles = append(b.titles, title)
@@ -54,6 +60,9 @@ func TestTrayInitialAppearanceUsesStableTitle(t *testing.T) {
 
 	tray.setInitialAppearance()
 
+	if !bytes.Equal(backend.icon, GetNormalIcon(TrayIconModeApp, "")) {
+		t.Fatal("initial icon is not the application icon")
+	}
 	if len(backend.titles) != 1 || backend.titles[0] != trayApplicationID {
 		t.Fatalf("initial titles = %v, want [%q]", backend.titles, trayApplicationID)
 	}
