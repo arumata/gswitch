@@ -29,18 +29,29 @@ type SettingsWindow struct {
 	autostartUpdating bool // flag to prevent recursive toggle handling
 
 	// Keys section widgets
-	layoutSwitchCombo     *gtk.ComboBoxText
-	layoutSwitchStatus    *gtk.Label // Status label for auto-detection result
-	convertKeyCombo       *gtk.ComboBoxText
-	customLayoutSwitch    string         // Custom value if "Other..." is selected
-	customConvertKey      string         // Custom value if "Other..." is selected
-	prevLayoutSwitchIdx   int            // Previous index before "Other..." was selected
-	prevConvertKeyIdx     int            // Previous index before "Other..." was selected
-	ignoreComboChanged    bool           // Flag to prevent recursive change handling
-	lastDetectionResult   *DetectionInfo // Cached detection result for validation
-	detectionGeneration   uint64         // Generation counter for stale update protection
-	detectionInFlight     bool           // Guard against concurrent detection runs
-	detectionPendingRerun bool           // Schedule rerun after in-flight detection completes
+	layoutSwitchCombo          *gtk.ComboBoxText
+	layoutSwitchStatus         *gtk.Label // Status label for auto-detection result
+	convertKeyCombo            *gtk.ComboBoxText
+	conversionModifiersCombo   *gtk.ComboBoxText
+	conversionShortcutKeys     [4]*gtk.Label
+	conversionShortcutsMode    *gtk.Label
+	conversionShortcutsNote    *gtk.Label
+	conversionShortcutsStyle   *gtk.CssProvider
+	shortcutsAttentionDot      *gtk.Label
+	shortcutsFlashStyle        *gtk.CssProvider
+	shortcutsFlashSource       glib.SourceHandle
+	loadingShortcutConfig      bool
+	conversionShortcutsButton  *gtk.MenuButton
+	conversionShortcutsPopover *gtk.Popover
+	customLayoutSwitch         string         // Custom value if "Other..." is selected
+	customConvertKey           string         // Custom value if "Other..." is selected
+	prevLayoutSwitchIdx        int            // Previous index before "Other..." was selected
+	prevConvertKeyIdx          int            // Previous index before "Other..." was selected
+	ignoreComboChanged         bool           // Flag to prevent recursive change handling
+	lastDetectionResult        *DetectionInfo // Cached detection result for validation
+	detectionGeneration        uint64         // Generation counter for stale update protection
+	detectionInFlight          bool           // Guard against concurrent detection runs
+	detectionPendingRerun      bool           // Schedule rerun after in-flight detection completes
 
 	// Layouts section widgets
 	autoDetectCheck   *gtk.CheckButton
@@ -307,7 +318,17 @@ func (w *SettingsWindow) createKeysSection() (*gtk.Frame, error) {
 		return nil, err
 	}
 	convertKeyLabel.SetHAlign(gtk.ALIGN_START)
-	grid.Attach(convertKeyLabel, 0, 3, 1, 1)
+	convertKeyHeading, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 4)
+	if err != nil {
+		return nil, err
+	}
+	shortcutsButton, err := w.createConversionShortcutsButton()
+	if err != nil {
+		return nil, err
+	}
+	convertKeyHeading.PackStart(convertKeyLabel, false, false, 0)
+	convertKeyHeading.PackStart(shortcutsButton, false, false, 0)
+	grid.Attach(convertKeyHeading, 0, 3, 1, 1)
 
 	w.convertKeyCombo, err = gtk.ComboBoxTextNew()
 	if err != nil {
@@ -321,18 +342,23 @@ func (w *SettingsWindow) createKeysSection() (*gtk.Frame, error) {
 	w.convertKeyCombo.Connect("changed", w.onConvertKeyChanged)
 	grid.Attach(w.convertKeyCombo, 1, 3, 1, 1)
 
-	// Row 4: Conversion shortcut hint
-	convertKeyHint, err := gtk.LabelNew("")
+	modifiersLabel, err := gtk.LabelNew(strLabelConversionModifiers)
 	if err != nil {
 		return nil, err
 	}
-	convertKeyHint.SetUseMarkup(true)
-	convertKeyHintText := glib.MarkupEscapeText(strConvertKeyHint)
-	convertKeyHint.SetMarkup("<small><span foreground='gray'>" + convertKeyHintText + "</span></small>")
-	convertKeyHint.SetLineWrap(true)
-	convertKeyHint.SetHAlign(gtk.ALIGN_START)
-	convertKeyHint.SetMarginStart(5)
-	grid.Attach(convertKeyHint, 0, 4, 2, 1)
+	modifiersLabel.SetHAlign(gtk.ALIGN_START)
+	grid.Attach(modifiersLabel, 0, 4, 1, 1)
+	w.conversionModifiersCombo, err = gtk.ComboBoxTextNew()
+	if err != nil {
+		return nil, err
+	}
+	w.conversionModifiersCombo.AppendText(strConversionModifiersStandard)
+	w.conversionModifiersCombo.AppendText(strConversionModifiersPunto)
+	w.conversionModifiersCombo.SetActive(0)
+	w.conversionModifiersCombo.Connect("changed", w.onConversionPresetChanged)
+	grid.Attach(w.conversionModifiersCombo, 1, 4, 1, 1)
+
+	w.updateConversionShortcuts()
 
 	w.conversionRecoveryWarning, err = gtk.LabelNew("")
 	if err != nil {
@@ -647,6 +673,9 @@ func (w *SettingsWindow) loadConfig() {
 // loadKeyConfig retains the disk snapshot while proposing a safe conversion
 // key. Apply must detect the difference even without a user changing widgets.
 func (w *SettingsWindow) loadKeyConfig(cfg *TrayConfig) {
+	w.loadingShortcutConfig = true
+	defer func() { w.loadingShortcutConfig = false }()
+	w.setShortcutsAttention(false)
 	w.loadedConfig = cloneTrayConfig(cfg)
 	w.setLayoutSwitchFromValue(cfg.LayoutSwitch)
 	value := cfg.ConvertKey
@@ -658,6 +687,12 @@ func (w *SettingsWindow) loadKeyConfig(cfg *TrayConfig) {
 		}
 	}
 	w.setConvertKeyFromValue(value)
+	if cfg.SwapConversionModifiers {
+		w.conversionModifiersCombo.SetActive(1)
+	} else {
+		w.conversionModifiersCombo.SetActive(0)
+	}
+	w.updateConversionShortcuts()
 	w.conversionRecoveryWarning.SetText(message)
 	w.conversionRecoveryWarning.SetVisible(message != "")
 }
@@ -1157,6 +1192,7 @@ func sameTrayConfig(left, right *TrayConfig) bool {
 	}
 	if left.LayoutSwitch != right.LayoutSwitch ||
 		left.ConvertKey != right.ConvertKey ||
+		left.SwapConversionModifiers != right.SwapConversionModifiers ||
 		left.Layout1 != right.Layout1 ||
 		left.Layout2 != right.Layout2 ||
 		left.Delay != right.Delay ||
@@ -1211,6 +1247,8 @@ func (w *SettingsWindow) collectConfigValues() (*TrayConfig, error) {
 	} else {
 		cfg.ConvertKey = convertKeyOptions[convertKeyIdx].Value
 	}
+
+	cfg.SwapConversionModifiers = w.conversionModifiersCombo.GetActive() == 1
 
 	// Get layout values
 	layout1Idx := w.layout1Combo.GetActive()
@@ -1272,8 +1310,8 @@ func (w *SettingsWindow) validateConfig(cfg *TrayConfig) error {
 func trayConfigWriteArgs(cfg *TrayConfig) string {
 	// Build config string
 	configStr := fmt.Sprintf(
-		"layout-switch=%s,convert-key=%s,delay=%d,layout-switch-delay=%d,layout1=%s,layout2=%s",
-		cfg.LayoutSwitch, cfg.ConvertKey, cfg.Delay, cfg.LayoutSwitchDelay, cfg.Layout1, cfg.Layout2,
+		"layout-switch=%s,convert-key=%s,swap-conversion-modifiers=%t,delay=%d,layout-switch-delay=%d,layout1=%s,layout2=%s",
+		cfg.LayoutSwitch, cfg.ConvertKey, cfg.SwapConversionModifiers, cfg.Delay, cfg.LayoutSwitchDelay, cfg.Layout1, cfg.Layout2,
 	)
 
 	// Add blacklist if not empty
@@ -1536,6 +1574,7 @@ func (w *SettingsWindow) updateLayoutSwitchComboWithCustom(result KeyPickerResul
 
 // onConvertKeyChanged handles convert key combo selection change.
 func (w *SettingsWindow) onConvertKeyChanged() {
+	defer w.updateConversionShortcuts()
 	idx := w.convertKeyCombo.GetActive()
 	if idx < 0 || idx >= len(convertKeyOptions) {
 		return

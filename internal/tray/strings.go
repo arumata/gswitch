@@ -81,11 +81,26 @@ const (
 
 // Keys section
 const (
-	strLabelLayoutSwitch = "Layout switch key:"
-	strLabelConvertKey   = "Text conversion:"
-	strLayoutSwitchHint  = "Specify the key used to switch keyboard layout in the system"
-	strConvertKeyHint    = "Repeat the same trigger immediately to undo a correction. Add Ctrl for selected text; add Ctrl+Shift to swap its case."
-	strAutoDetect        = "Detect automatically"
+	strLabelLayoutSwitch           = "Layout switch key:"
+	strLabelConvertKey             = "Text conversion:"
+	strLayoutSwitchHint            = "Specify the key used to switch keyboard layout in the system"
+	strLabelConversionModifiers    = "Modifier preset:"
+	strConversionShortcutsTitle    = "Shortcuts"
+	strShortcutsChanged            = "Shortcuts changed. Open to see the new combinations."
+	strShortcutsTyped              = "TYPED TEXT"
+	strShortcutsSelected           = "SELECTED TEXT"
+	strShortcutsWord               = "Last word"
+	strShortcutsLine               = "Whole line"
+	strShortcutsLayout             = "Convert layout"
+	strShortcutsCase               = "Swap case"
+	strShortcutsUndoTitle          = "Undo correction"
+	strShortcutsUndo               = "Repeat the same trigger immediately."
+	strShortcutsDoubleTap          = "×2 means double-tap. Hold the other keys."
+	strShortcutsOtherShift         = "other Shift"
+	strShortcutsInfoIcon           = "ⓘ"
+	strConversionModifiersStandard = "Standard"
+	strConversionModifiersPunto    = "Like Punto Switcher"
+	strAutoDetect                  = "Detect automatically"
 )
 
 // Layout switch options

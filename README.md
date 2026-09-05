@@ -178,6 +178,16 @@ another key.
 | Swap selection case | Hold <kbd>Ctrl</kbd> and one <kbd>Shift</kbd> + double-tap other <kbd>Shift</kbd> | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>ConvertKey</kbd> |
 | Undo last correction | Repeat the same trigger immediately | Repeat the same trigger immediately |
 
+For familiar Punto Switcher shortcuts, choose a custom conversion key such as
+Pause/Break and select "Like Punto Switcher" under "Modifier preset".
+Use the info button next to "Text conversion" to view shortcuts for the current mode.
+This sets `swap-conversion-modifiers=true`: `Shift+ConvertKey` converts the
+selection and `Ctrl+ConvertKey` corrects the whole line. The key alone corrects
+the last word; `Ctrl+Shift+ConvertKey` swaps selection case in either preset.
+The default is `false`. Selecting Double Shift resets the preset to Standard
+and disables the selector; Apply saves the reset. Double Shift gestures are
+unchanged.
+
 ### CLI
 
 ```text
@@ -247,6 +257,7 @@ Config file: `/etc/gswitch/default.conf`
 |---|---|---|
 | `layout-switch` | Layout-switch key scancode(s): `auto`, single (`125`), or combo (`29+42`) | `auto` |
 | `convert-key` | One non-modifier evdev scancode for the correction trigger; `0` = double-Shift mode (combinations are rejected) | `0` |
+| `swap-conversion-modifiers` | Swap Ctrl and Shift for a custom conversion key; does not affect Double Shift | `false` |
 | `delay` | Delay between synthetic key events, ms | `10` |
 | `layout-switch-delay` | Extra delay after the layout switch, ms | `100` |
 | `blacklist` | Comma-separated device UIDs to ignore | — |

@@ -167,29 +167,31 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got []selectionTransform
-			s := &Switcher{
-				config:    &Config{ConvertKey: tt.convKey},
-				converter: NewConverter(),
-				selectionHandler: func(transform selectionTransform) {
-					got = append(got, transform)
-				},
-			}
-			s.converter.ConvKey = tt.convKey
+	for _, swap := range []bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("%s/swap=%t", tt.name, swap), func(t *testing.T) {
+				var got []selectionTransform
+				s := &Switcher{
+					config:    &Config{ConvertKey: tt.convKey, SwapConversionModifiers: swap && tt.convKey == 0},
+					converter: NewConverter(),
+					selectionHandler: func(transform selectionTransform) {
+						got = append(got, transform)
+					},
+				}
+				s.converter.ConvKey = tt.convKey
 
-			for i := range tt.events {
-				s.processKeyEvent(&tt.events[i])
-			}
+				for i := range tt.events {
+					s.processKeyEvent(&tt.events[i])
+				}
 
-			if len(got) != 1 {
-				t.Fatalf("selection handler calls = %d, want 1", len(got))
-			}
-			if got[0] != tt.want {
-				t.Fatalf("selection transform = %v, want %v", got[0], tt.want)
-			}
-		})
+				if len(got) != 1 {
+					t.Fatalf("selection handler calls = %d, want 1", len(got))
+				}
+				if got[0] != tt.want {
+					t.Fatalf("selection transform = %v, want %v", got[0], tt.want)
+				}
+			})
+		}
 	}
 }
 

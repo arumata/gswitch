@@ -35,13 +35,14 @@ type Config struct {
 	Blacklist []string // List of device UIDs to ignore
 	Warnings  []string // Non-fatal compatibility fallbacks applied while loading
 
-	LayoutSwitchKey   []uint16
-	LayoutSwitchAuto  bool   // If true, layout switch keys were auto-detected (for saving as "auto")
-	ConvertKey        uint16 // Key to trigger conversion (0 = double-shift mode)
-	ReverseMode       bool
-	Delay             int
-	LayoutSwitchDelay int          // Delay after layout switch (ms), default 100
-	Layouts           []LayoutSpec // Explicit layouts for conversion (optional, must be exactly 2 if set)
+	LayoutSwitchKey         []uint16
+	LayoutSwitchAuto        bool   // If true, layout switch keys were auto-detected (for saving as "auto")
+	ConvertKey              uint16 // Key to trigger conversion (0 = double-shift mode)
+	SwapConversionModifiers bool   // Swap Ctrl/Shift for custom conversion keys only
+	ReverseMode             bool
+	Delay                   int
+	LayoutSwitchDelay       int          // Delay after layout switch (ms), default 100
+	Layouts                 []LayoutSpec // Explicit layouts for conversion (optional, must be exactly 2 if set)
 }
 
 // LoadConfig reads configuration from the default config path.
@@ -100,6 +101,8 @@ func LoadConfigFrom(path string) (*Config, error) {
 			cfg.ConvertKey = convertKey
 		case "reverse-mode":
 			cfg.ReverseMode = strings.EqualFold(value, "true")
+		case "swap-conversion-modifiers":
+			cfg.SwapConversionModifiers = strings.EqualFold(value, "true")
 		case "delay":
 			if v, err := strconv.Atoi(value); err == nil {
 				cfg.Delay = v
@@ -359,6 +362,8 @@ func WriteConfigFromArgsTo(path, args string) error {
 				return fmt.Errorf("invalid convert-key value %q: %w", value, parseErr)
 			}
 			cfg.ConvertKey = convertKey
+		case "swap-conversion-modifiers":
+			cfg.SwapConversionModifiers = strings.EqualFold(value, "true")
 		case "delay":
 			if v, err := strconv.Atoi(value); err == nil {
 				cfg.Delay = v
@@ -495,6 +500,11 @@ layout-switch=%s
 
 convert-key=%d
 
+# Swap Ctrl and Shift for a custom conversion key.
+# true: Shift converts the selection, Ctrl corrects the whole line.
+# This setting has no effect when convert-key=0.
+swap-conversion-modifiers=%t
+
 
 # gswitch waits a small delay before sending keys.
 # This helps your system handle all events correctly.
@@ -539,7 +549,7 @@ blacklist=%s
 # layout2=ua(unicode)
 
 %s
-`, layoutSwitchStr, cfg.ConvertKey, cfg.Delay, cfg.LayoutSwitchDelay, blacklistStr,
+`, layoutSwitchStr, cfg.ConvertKey, cfg.SwapConversionModifiers, cfg.Delay, cfg.LayoutSwitchDelay, blacklistStr,
 		FormatLayoutsSection(cfg.Layouts))
 
 	// Write content to temp file

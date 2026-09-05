@@ -55,19 +55,21 @@ type Switcher struct {
 	sigOnce sync.Once
 
 	// Selection conversion
-	clipboard            *Clipboard
-	layoutConverter      *LayoutConverter
-	ctrlPressed          atomic.Bool
-	leftShiftPressed     atomic.Bool
-	rightShiftPressed    atomic.Bool
-	ctrlShiftSelectArmed atomic.Bool
-	selectionPending     bool
-	pendingSelection     selectionTransform
-	inConversion         atomic.Bool
-	lastConvertedPrimary string
-	lastConvertedMode    selectionTransform
-	lastConvertedMu      sync.Mutex
-	selectionHandler     func(selectionTransform)
+	clipboard                  *Clipboard
+	layoutConverter            *LayoutConverter
+	ctrlPressed                atomic.Bool
+	leftShiftPressed           atomic.Bool
+	rightShiftPressed          atomic.Bool
+	ctrlShiftSelectArmed       atomic.Bool
+	customConversionKeyPressed bool
+	pendingBufferAction        Action
+	selectionPending           bool
+	pendingSelection           selectionTransform
+	inConversion               atomic.Bool
+	lastConvertedPrimary       string
+	lastConvertedMode          selectionTransform
+	lastConvertedMu            sync.Mutex
+	selectionHandler           func(selectionTransform)
 
 	eventChan      chan *InputEvent
 	overflowEvents []*InputEvent
@@ -661,15 +663,7 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 	defer s.finishSelectionModifierEvent(event)
 	s.trackSelectionModifiers(event)
 
-	// Ctrl+ConvertKey -> selection conversion (custom key mode)
-	if s.config.ConvertKey != 0 && event.Code == s.config.ConvertKey && event.Value == 1 && s.ctrlPressed.Load() {
-		transform := selectionConvertLayout
-		if s.leftShiftPressed.Load() || s.rightShiftPressed.Load() {
-			transform = selectionSwapCase
-		}
-		s.logDebug("selection trigger detected")
-		s.ctrlShiftSelectArmed.Store(false)
-		s.deferSelectionUntilModifiersReleased(transform)
+	if s.processCustomConversionKey(event) {
 		return
 	}
 
@@ -725,6 +719,42 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 	}
 }
 
+// processCustomConversionKey latches the action on key-down. Both release
+// orders use the same completion path so physical modifiers cannot affect replay.
+func (s *Switcher) processCustomConversionKey(event *InputEvent) bool {
+	if s.config.ConvertKey == 0 || event.Code != s.config.ConvertKey {
+		return false
+	}
+	switch event.Value {
+	case K_DOWN:
+		s.customConversionKeyPressed = true
+		ctrl := s.ctrlPressed.Load()
+		shift := s.leftShiftPressed.Load() || s.rightShiftPressed.Load()
+		selection, line := ctrl, shift
+		if s.config.SwapConversionModifiers {
+			selection, line = shift, ctrl
+		}
+		if selection {
+			transform := selectionConvertLayout
+			if ctrl && shift {
+				transform = selectionSwapCase
+			}
+			s.ctrlShiftSelectArmed.Store(false)
+			s.converter.ClearBuffer()
+			s.pendingBufferAction = ActionNone
+			s.deferSelectionUntilModifiersReleased(transform)
+		} else {
+			s.pendingBufferAction = ActionConvertWord
+			if line {
+				s.pendingBufferAction = ActionConvertAll
+			}
+		}
+	case K_UP:
+		s.customConversionKeyPressed = false
+	}
+	return true
+}
+
 func (s *Switcher) trackSelectionModifiers(event *InputEvent) {
 	if event.Code == KEY_LEFTCTRL || event.Code == KEY_RIGHTCTRL {
 		switch event.Value {
@@ -764,14 +794,25 @@ func (s *Switcher) finishSelectionModifierEvent(event *InputEvent) {
 		!s.ctrlPressed.Load() && !s.leftShiftPressed.Load() && !s.rightShiftPressed.Load() {
 		s.ctrlShiftSelectArmed.Store(false)
 	}
-	if !s.selectionPending || s.ctrlPressed.Load() ||
+	if s.customConversionKeyPressed || s.ctrlPressed.Load() ||
 		s.leftShiftPressed.Load() || s.rightShiftPressed.Load() {
 		return
 	}
-
-	transform := s.pendingSelection
-	s.selectionPending = false
-	s.handleSelection(transform)
+	if s.selectionPending {
+		transform := s.pendingSelection
+		s.selectionPending = false
+		s.handleSelection(transform)
+	}
+	if s.pendingBufferAction != ActionNone {
+		action := s.pendingBufferAction
+		s.pendingBufferAction = ActionNone
+		s.converter.trimBuffer()
+		if s.degradedMode {
+			s.converter.ClearBuffer()
+		} else if s.converter.HasText() {
+			s.performConversion(action)
+		}
+	}
 }
 
 func (s *Switcher) deferSelectionUntilModifiersReleased(transform selectionTransform) {

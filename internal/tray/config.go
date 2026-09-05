@@ -13,13 +13,14 @@ const ConfigFile = "/etc/gswitch/default.conf"
 
 // TrayConfig holds the configuration values relevant to the tray application.
 type TrayConfig struct {
-	LayoutSwitch      string   // "125" or "29+42"
-	ConvertKey        string   // "0" for double-shift, or key code
-	Layout1           string   // "us"
-	Layout2           string   // "ru"
-	Delay             int      // 10
-	LayoutSwitchDelay int      // 100
-	Blacklist         []string // Device UIDs to ignore
+	LayoutSwitch            string // "125" or "29+42"
+	SwapConversionModifiers bool
+	ConvertKey              string   // "0" for double-shift, or key code
+	Layout1                 string   // "us"
+	Layout2                 string   // "ru"
+	Delay                   int      // 10
+	LayoutSwitchDelay       int      // 100
+	Blacklist               []string // Device UIDs to ignore
 }
 
 // DefaultTrayConfig returns a config with default values.
@@ -38,9 +39,14 @@ func DefaultTrayConfig() *TrayConfig {
 // LoadTrayConfig reads configuration from the config file.
 // Returns default config if file doesn't exist or can't be read.
 func LoadTrayConfig() *TrayConfig {
+	return loadTrayConfigFrom(ConfigFile)
+}
+
+func loadTrayConfigFrom(path string) *TrayConfig {
 	cfg := DefaultTrayConfig()
 
-	file, err := os.Open(ConfigFile)
+	// #nosec G304 -- path is the fixed system config or a caller-owned test file.
+	file, err := os.Open(path)
 	if err != nil {
 		return cfg
 	}
@@ -68,6 +74,8 @@ func LoadTrayConfig() *TrayConfig {
 			cfg.LayoutSwitch = value
 		case "convert-key", "replace-key":
 			cfg.ConvertKey = value
+		case "swap-conversion-modifiers":
+			cfg.SwapConversionModifiers = strings.EqualFold(value, "true")
 		case "delay":
 			if v, err := strconv.Atoi(value); err == nil {
 				cfg.Delay = v

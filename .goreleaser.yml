@@ -246,7 +246,7 @@ checksum:
 # Snapshot configuration (for local testing)
 # =============================================================================
 snapshot:
-  version_template: "{{ incpatch .Version }}-snapshot"
+  version_template: '{{ if .Env.GSWITCH_CANDIDATE_VERSION }}{{ .Env.GSWITCH_CANDIDATE_VERSION }}{{ else }}{{ incpatch .Version }}{{ end }}-snapshot'
 
 # =============================================================================
 # Changelog (for GitHub releases)
