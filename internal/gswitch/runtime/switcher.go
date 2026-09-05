@@ -61,6 +61,8 @@ type Switcher struct {
 	leftShiftPressed     atomic.Bool
 	rightShiftPressed    atomic.Bool
 	ctrlShiftSelectArmed atomic.Bool
+	selectionPending     bool
+	pendingSelection     selectionTransform
 	inConversion         atomic.Bool
 	lastConvertedPrimary string
 	lastConvertedMode    selectionTransform
@@ -667,7 +669,7 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 		}
 		s.logDebug("selection trigger detected")
 		s.ctrlShiftSelectArmed.Store(false)
-		s.handleSelection(transform)
+		s.deferSelectionUntilModifiersReleased(transform)
 		return
 	}
 
@@ -697,7 +699,7 @@ func (s *Switcher) processKeyEvent(event *InputEvent) {
 				s.logDebug("selection trigger detected")
 				s.ctrlShiftSelectArmed.Store(false)
 				s.converter.ClearBuffer()
-				s.handleSelection(transform)
+				s.deferSelectionUntilModifiersReleased(transform)
 				return
 			}
 
@@ -762,6 +764,19 @@ func (s *Switcher) finishSelectionModifierEvent(event *InputEvent) {
 		!s.ctrlPressed.Load() && !s.leftShiftPressed.Load() && !s.rightShiftPressed.Load() {
 		s.ctrlShiftSelectArmed.Store(false)
 	}
+	if !s.selectionPending || s.ctrlPressed.Load() ||
+		s.leftShiftPressed.Load() || s.rightShiftPressed.Load() {
+		return
+	}
+
+	transform := s.pendingSelection
+	s.selectionPending = false
+	s.handleSelection(transform)
+}
+
+func (s *Switcher) deferSelectionUntilModifiersReleased(transform selectionTransform) {
+	s.pendingSelection = transform
+	s.selectionPending = true
 }
 
 func (s *Switcher) performConversion(action Action) {
@@ -981,6 +996,10 @@ func (s *Switcher) convertSelection(transform selectionTransform) {
 	}
 
 	s.logDebug("%s", textDebugSummary("converted text", converted))
+	if err := s.clipboard.WaitForSelectionModifiersReleased(); err != nil {
+		s.logError("selection paste canceled while waiting for trigger modifiers to be released: %v", err)
+		return
+	}
 
 	if err := s.clipboard.Write(converted); err != nil {
 		s.logError("failed to write to clipboard: %v", err)

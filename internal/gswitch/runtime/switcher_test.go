@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -106,6 +107,8 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 			events: []InputEvent{
 				{Code: KEY_LEFTCTRL, Value: K_DOWN},
 				{Code: testKeyPause, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_UP},
+				{Code: KEY_LEFTCTRL, Value: K_UP},
 			},
 			want: selectionConvertLayout,
 		},
@@ -116,6 +119,9 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 				{Code: KEY_LEFTCTRL, Value: K_DOWN},
 				{Code: testKeyLeftShift, Value: K_DOWN},
 				{Code: testKeyPause, Value: K_DOWN},
+				{Code: testKeyPause, Value: K_UP},
+				{Code: testKeyLeftShift, Value: K_UP},
+				{Code: KEY_LEFTCTRL, Value: K_UP},
 			},
 			want: selectionSwapCase,
 		},
@@ -127,6 +133,7 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 				{Code: testKeyLeftShift, Value: K_UP},
 				{Code: testKeyLeftShift, Value: K_DOWN},
 				{Code: testKeyLeftShift, Value: K_UP},
+				{Code: KEY_LEFTCTRL, Value: K_UP},
 			},
 			want: selectionConvertLayout,
 		},
@@ -140,6 +147,7 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 				{Code: testKeyRightShift, Value: K_DOWN},
 				{Code: testKeyRightShift, Value: K_UP},
 				{Code: testKeyLeftShift, Value: K_UP},
+				{Code: KEY_LEFTCTRL, Value: K_UP},
 			},
 			want: selectionSwapCase,
 		},
@@ -182,6 +190,37 @@ func TestProcessKeyEventRoutesSelectionTransforms(t *testing.T) {
 				t.Fatalf("selection transform = %v, want %v", got[0], tt.want)
 			}
 		})
+	}
+}
+
+func TestProcessKeyEventWaitsForSelectionModifiersRelease(t *testing.T) {
+	var got []selectionTransform
+	s := &Switcher{
+		config:    &Config{},
+		converter: NewConverter(),
+		selectionHandler: func(transform selectionTransform) {
+			got = append(got, transform)
+		},
+	}
+
+	events := []InputEvent{
+		{Code: KEY_LEFTCTRL, Value: K_DOWN},
+		{Code: testKeyLeftShift, Value: K_DOWN},
+		{Code: testKeyLeftShift, Value: K_UP},
+		{Code: testKeyLeftShift, Value: K_DOWN},
+		{Code: testKeyLeftShift, Value: K_UP},
+	}
+	for i := range events {
+		s.processKeyEvent(&events[i])
+	}
+
+	if len(got) != 0 {
+		t.Fatalf("selection handler called before Ctrl release: %#v", got)
+	}
+
+	s.processKeyEvent(&InputEvent{Code: KEY_LEFTCTRL, Value: K_UP})
+	if !reflect.DeepEqual(got, []selectionTransform{selectionConvertLayout}) {
+		t.Fatalf("selection transforms = %#v, want layout conversion", got)
 	}
 }
 

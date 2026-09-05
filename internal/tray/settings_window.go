@@ -10,6 +10,8 @@ import (
 
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
+
+	gsconfig "github.com/arumata/gswitch/internal/gswitch/config"
 )
 
 // SettingsWindow represents the settings dialog.
@@ -58,10 +60,11 @@ type SettingsWindow struct {
 	delaySwitchSpin  *gtk.SpinButton
 
 	// Devices section widgets
-	devicesBox       *gtk.Box
-	deviceCheckboxes map[string]*gtk.CheckButton // UID -> checkbox
-	deviceManager    *DeviceManager
-	loadedConfig     *TrayConfig
+	devicesBox                *gtk.Box
+	deviceCheckboxes          map[string]*gtk.CheckButton // UID -> checkbox
+	deviceManager             *DeviceManager
+	loadedConfig              *TrayConfig
+	conversionRecoveryWarning *gtk.Label
 }
 
 // NewSettingsWindow creates a new settings window.
@@ -330,6 +333,19 @@ func (w *SettingsWindow) createKeysSection() (*gtk.Frame, error) {
 	convertKeyHint.SetHAlign(gtk.ALIGN_START)
 	convertKeyHint.SetMarginStart(5)
 	grid.Attach(convertKeyHint, 0, 4, 2, 1)
+
+	w.conversionRecoveryWarning, err = gtk.LabelNew("")
+	if err != nil {
+		return nil, err
+	}
+	w.conversionRecoveryWarning.SetLineWrap(true)
+	w.conversionRecoveryWarning.SetMaxWidthChars(55)
+	w.conversionRecoveryWarning.SetHAlign(gtk.ALIGN_START)
+	w.conversionRecoveryWarning.SetNoShowAll(true)
+	if style, _ := w.conversionRecoveryWarning.GetStyleContext(); style != nil {
+		style.AddClass("warning")
+	}
+	grid.Attach(w.conversionRecoveryWarning, 0, 5, 2, 1)
 
 	frame.Add(grid)
 	return frame, nil
@@ -602,17 +618,12 @@ func (w *SettingsWindow) Show() {
 // loadConfig reads the configuration file and populates widgets.
 func (w *SettingsWindow) loadConfig() {
 	cfg := LoadTrayConfig()
-	w.loadedConfig = cloneTrayConfig(cfg)
 
 	// Use ignoreComboChanged to prevent triggering detection during programmatic SetActive
 	w.ignoreComboChanged = true
 	defer func() { w.ignoreComboChanged = false }()
 
-	// Set layout switch combo
-	w.setLayoutSwitchFromValue(cfg.LayoutSwitch)
-
-	// Set convert key combo
-	w.setConvertKeyFromValue(cfg.ConvertKey)
+	w.loadKeyConfig(cfg)
 
 	// Set layout combos
 	w.setLayoutComboByValue(w.layout1Combo, cfg.Layout1)
@@ -631,6 +642,35 @@ func (w *SettingsWindow) loadConfig() {
 	glib.IdleAdd(func() {
 		w.updateDetectionStatusAsync()
 	})
+}
+
+// loadKeyConfig retains the disk snapshot while proposing a safe conversion
+// key. Apply must detect the difference even without a user changing widgets.
+func (w *SettingsWindow) loadKeyConfig(cfg *TrayConfig) {
+	w.loadedConfig = cloneTrayConfig(cfg)
+	w.setLayoutSwitchFromValue(cfg.LayoutSwitch)
+	value := cfg.ConvertKey
+	message := ""
+	if code, err := strconv.ParseUint(value, 10, 16); err == nil {
+		if effective := gsconfig.EffectiveConvertKey(uint16(code)); uint64(effective) != code {
+			value = strconv.FormatUint(uint64(effective), 10)
+			message = fmt.Sprintf(strConversionKeyRecovery, formatCustomKeyLabel(cfg.ConvertKey))
+		}
+	}
+	w.setConvertKeyFromValue(value)
+	w.conversionRecoveryWarning.SetText(message)
+	w.conversionRecoveryWarning.SetVisible(message != "")
+}
+
+// recordConfigSave runs on the GTK thread after the save attempt. A failed or
+// canceled write must retain both the disk snapshot and the recovery warning.
+func (w *SettingsWindow) recordConfigSave(cfg *TrayConfig, saveErr error) {
+	if saveErr != nil {
+		return
+	}
+	w.loadedConfig = cloneTrayConfig(cfg)
+	w.conversionRecoveryWarning.SetText("")
+	w.conversionRecoveryWarning.Hide()
 }
 
 func (w *SettingsWindow) setTrayIconMode(mode TrayIconMode) {
@@ -793,7 +833,7 @@ func (w *SettingsWindow) setLayoutSwitchFromValue(value string) {
 		w.layoutSwitchCombo.AppendText(opt.Label)
 	}
 	// Add custom entry with the value
-	customLabel := fmt.Sprintf("Custom (%s)", value)
+	customLabel := formatCustomKeyLabel(value)
 	w.layoutSwitchCombo.AppendText(customLabel)
 	w.layoutSwitchCombo.SetActive(len(layoutSwitchOptions))
 	w.prevLayoutSwitchIdx = 0 // fallback to first option if custom is canceled
@@ -815,7 +855,7 @@ func (w *SettingsWindow) setConvertKeyFromValue(value string) {
 		w.convertKeyCombo.AppendText(opt.Label)
 	}
 	// Add custom entry with the value
-	customLabel := fmt.Sprintf("Custom (%s)", value)
+	customLabel := formatCustomKeyLabel(value)
 	w.convertKeyCombo.AppendText(customLabel)
 	w.convertKeyCombo.SetActive(len(convertKeyOptions))
 	w.prevConvertKeyIdx = 0 // fallback to first option if custom is canceled
@@ -1082,6 +1122,7 @@ func (w *SettingsWindow) onApplyClicked() {
 		}
 
 		glib.IdleAdd(func() {
+			w.recordConfigSave(cfg, saveErr)
 			if saveErr != nil {
 				if !errors.Is(saveErr, ErrUserCanceled) {
 					w.showErrorDialog(strErrorSaveFailed, saveErr.Error())
@@ -1089,10 +1130,8 @@ func (w *SettingsWindow) onApplyClicked() {
 				return
 			}
 			if restartErr != nil {
-				if !errors.Is(restartErr, ErrUserCanceled) {
-					// Show warning but don't block - config was saved
-					w.showWarningDialog(strWarnRestartFailed, restartErr.Error())
-				}
+				// Cancellation also leaves the saved configuration unapplied.
+				w.showWarningDialog(strWarnRestartFailed, restartErr.Error())
 			}
 
 			w.updateServiceStatus()
@@ -1223,15 +1262,14 @@ func (w *SettingsWindow) validateConfig(cfg *TrayConfig) error {
 	if cfg.ConvertKey == "custom" {
 		return errors.New("select a conversion key or specify a key code")
 	}
-	if _, err := strconv.ParseUint(cfg.ConvertKey, 10, 16); err != nil {
+	convertKey, err := strconv.ParseUint(cfg.ConvertKey, 10, 16)
+	if err != nil {
 		return errors.New("conversion key must be one numeric evdev scancode")
 	}
-
-	return nil
+	return gsconfig.ValidateConvertKey(uint16(convertKey))
 }
 
-// saveConfig saves configuration using pkexec gswitch --write-config.
-func (w *SettingsWindow) saveConfig(cfg *TrayConfig) error {
+func trayConfigWriteArgs(cfg *TrayConfig) string {
 	// Build config string
 	configStr := fmt.Sprintf(
 		"layout-switch=%s,convert-key=%s,delay=%d,layout-switch-delay=%d,layout1=%s,layout2=%s",
@@ -1242,6 +1280,13 @@ func (w *SettingsWindow) saveConfig(cfg *TrayConfig) error {
 	if len(cfg.Blacklist) > 0 {
 		configStr += ",blacklist=" + strings.Join(cfg.Blacklist, ";")
 	}
+
+	return configStr
+}
+
+// saveConfig saves configuration using pkexec gswitch --write-config.
+func (w *SettingsWindow) saveConfig(cfg *TrayConfig) error {
+	configStr := trayConfigWriteArgs(cfg)
 
 	// Find gswitch binary
 	gswitchPath, err := findGswitchBinaryForPkexec()
@@ -1484,7 +1529,7 @@ func (w *SettingsWindow) updateLayoutSwitchComboWithCustom(result KeyPickerResul
 	for _, opt := range layoutSwitchOptions {
 		w.layoutSwitchCombo.AppendText(opt.Label)
 	}
-	customLabel := fmt.Sprintf("%s (%s)", strings.Join(result.KeyNames, "+"), result.Value)
+	customLabel := formatCustomKeyLabel(result.Value)
 	w.layoutSwitchCombo.AppendText(customLabel)
 	w.layoutSwitchCombo.SetActive(len(layoutSwitchOptions))
 }
@@ -1534,7 +1579,7 @@ func (w *SettingsWindow) updateConvertKeyComboWithCustom(result KeyPickerResult)
 	for _, opt := range convertKeyOptions {
 		w.convertKeyCombo.AppendText(opt.Label)
 	}
-	customLabel := fmt.Sprintf("%s (%s)", strings.Join(result.KeyNames, "+"), result.Value)
+	customLabel := formatCustomKeyLabel(result.Value)
 	w.convertKeyCombo.AppendText(customLabel)
 	w.convertKeyCombo.SetActive(len(convertKeyOptions))
 }

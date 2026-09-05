@@ -9,6 +9,9 @@ import (
 
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/gtk"
+
+	gsconfig "github.com/arumata/gswitch/internal/gswitch/config"
+	"github.com/arumata/gswitch/internal/gswitch/detect"
 )
 
 const xkbKeycodeOffset uint16 = 8
@@ -22,20 +25,41 @@ func gdkHardwareKeycodeToEvdev(hardwareKeycode uint16) (uint16, bool) {
 	return hardwareKeycode - xkbKeycodeOffset, true
 }
 
+// keyPickerCapture keeps the last chord after its keys are released.
+type keyPickerCapture struct {
+	pressed map[uint16]string
+	saved   map[uint16]string
+}
+
+func (c *keyPickerCapture) press(hardware uint16, source string) bool {
+	code, ok := gdkHardwareKeycodeToEvdev(hardware)
+	if !ok || isXTestKeyboard(source) {
+		return false
+	}
+	if c.pressed == nil {
+		c.pressed = make(map[uint16]string)
+	}
+	c.pressed[code] = detect.ScancodesToKeyNames([]uint16{code})
+	c.saved = maps.Clone(c.pressed)
+	return true
+}
+
+func (c *keyPickerCapture) release(hardware uint16, source string) {
+	if code, ok := gdkHardwareKeycodeToEvdev(hardware); ok && !isXTestKeyboard(source) {
+		delete(c.pressed, code)
+	}
+}
+
+// XTest injectors such as xcape emit a second chord after a physical modifier
+// is released. It must not overwrite the physical key selected by the user.
+func isXTestKeyboard(source string) bool {
+	return strings.HasSuffix(source, " XTEST keyboard")
+}
+
 // isModifier checks if scancode is a modifier key.
 // Modifiers: Shift (42, 54), Ctrl (29, 97), Alt (56, 100), Super (125, 126)
 func isModifier(code uint16) bool {
-	modifiers := map[uint16]bool{
-		42:  true, // Shift_L
-		54:  true, // Shift_R
-		29:  true, // Ctrl_L
-		97:  true, // Ctrl_R
-		56:  true, // Alt_L
-		100: true, // Alt_R
-		125: true, // Super_L
-		126: true, // Super_R
-	}
-	return modifiers[code]
+	return gsconfig.IsModifierKey(code)
 }
 
 // sortScancodes sorts keycodes: modifiers first, main key last.
@@ -120,11 +144,38 @@ func keyPickerHint(context KeyPickerContext) string {
 	return strKeyPickerHint
 }
 
-func keySelectionValid(context KeyPickerContext, keyCount int) bool {
-	if keyCount == 0 {
+func keySelectionValid(context KeyPickerContext, codes []uint16) bool {
+	if len(codes) == 0 {
 		return false
 	}
-	return context != KeyPickerForConvertKey || keyCount == 1
+	if context != KeyPickerForConvertKey {
+		return true
+	}
+	return len(codes) == 1 && gsconfig.ValidateConvertKey(codes[0]) == nil
+}
+
+// keySelectionMessage explains a rejected choice; an empty initial selection
+// needs only the instruction, not an error.
+func keySelectionMessage(context KeyPickerContext, codes []uint16) string {
+	if context != KeyPickerForConvertKey || len(codes) == 0 {
+		return ""
+	}
+	if len(codes) > 1 {
+		return strKeyPickerCombinationRejected
+	}
+	if gsconfig.ValidateConvertKey(codes[0]) != nil {
+		return fmt.Sprintf(strKeyPickerModifierRejected, detect.ScancodesToKeyNames(codes))
+	}
+	return ""
+}
+
+func updateKeySelectionFeedback(label *gtk.Label, okButton *gtk.Button, context KeyPickerContext, codes []uint16) {
+	message := keySelectionMessage(context, codes)
+	label.SetText(message)
+	label.SetVisible(message != "")
+	if okButton != nil {
+		okButton.SetSensitive(keySelectionValid(context, codes))
+	}
 }
 
 // ShowKeyPickerDialog shows a dialog for capturing a key or key combination.
@@ -179,6 +230,19 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 	scancodeLabel.SetMarkup("<span color='gray'>" + strKeyPickerScancode + " -</span>")
 	box.PackStart(scancodeLabel, false, false, 0)
 
+	validationLabel, err := gtk.LabelNew("")
+	if err != nil {
+		return KeyPickerResult{}, false
+	}
+	validationLabel.SetName("key-picker-validation")
+	validationLabel.SetLineWrap(true)
+	validationLabel.SetMaxWidthChars(44)
+	validationLabel.SetNoShowAll(true)
+	if style, _ := validationLabel.GetStyleContext(); style != nil {
+		style.AddClass("error")
+	}
+	box.PackStart(validationLabel, false, false, 0)
+
 	hintLabel, err := gtk.LabelNew(keyPickerHint(context))
 	if err != nil {
 		return KeyPickerResult{}, false
@@ -215,73 +279,38 @@ func ShowKeyPickerDialog(parent *gtk.Window, context KeyPickerContext, otherKeyV
 
 	// State for capturing keys
 	var result KeyPickerResult
-	currentlyPressed := make(map[uint16]string) // Keys currently held down
-	savedCombination := make(map[uint16]string) // Saved combination to return
+	capture := &keyPickerCapture{}
 
-	// Connect key-press-event
 	dialog.Connect("key-press-event", func(_ *gtk.Dialog, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
-		keycode, ok := gdkHardwareKeycodeToEvdev(keyEvent.HardwareKeyCode())
-		if !ok {
+		if !capture.press(keyEvent.HardwareKeyCode(), keyEventSourceName(event)) {
 			return true
 		}
-		keyval := keyEvent.KeyVal()
-
-		// Convert keyval to base key name (without modifier influence)
-		// Use ToUpper to get consistent naming (e.g., always "R" not "r")
-		keyName := gdk.KeyValName(gdk.KeyvalToUpper(keyval))
-		if keyName == "" {
-			keyName = gdk.KeyValName(keyval)
-		}
-		if keyName == "" {
-			keyName = "Key_" + strconv.FormatUint(uint64(keycode), 10)
-		}
-
-		// Add to currently pressed keys
-		currentlyPressed[keycode] = keyName
-
-		// Save current combination (all keys currently pressed)
-		savedCombination = make(map[uint16]string)
-		maps.Copy(savedCombination, currentlyPressed)
-
-		// Update display with saved combination
-		updateKeyDisplay(keyLabel, scancodeLabel, savedCombination)
-
-		// Conversion accepts one key only; layout switching also supports combinations.
-		if okButton != nil {
-			okButton.SetSensitive(keySelectionValid(context, len(savedCombination)))
-		}
-
-		return true // Consume the event
+		updateKeyDisplay(keyLabel, scancodeLabel, capture.saved)
+		selectedCodes := slices.Collect(maps.Keys(capture.saved))
+		updateKeySelectionFeedback(validationLabel, okButton, context, selectedCodes)
+		return true
 	})
 
-	// Connect key-release-event - remove from currently pressed but keep saved combination
 	dialog.Connect("key-release-event", func(_ *gtk.Dialog, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
-		keycode, ok := gdkHardwareKeycodeToEvdev(keyEvent.HardwareKeyCode())
-		if !ok {
-			return true
-		}
-
-		// Remove from currently pressed (but savedCombination stays intact)
-		delete(currentlyPressed, keycode)
-
+		capture.release(keyEvent.HardwareKeyCode(), keyEventSourceName(event))
 		return true
 	})
 
 	dialog.ShowAll()
 	response := dialog.Run()
 
-	if response == gtk.RESPONSE_OK && len(savedCombination) > 0 {
+	if response == gtk.RESPONSE_OK && len(capture.saved) > 0 {
 		// Collect keycodes from saved combination
-		codes := make([]uint16, 0, len(savedCombination))
-		for code := range savedCombination {
+		codes := make([]uint16, 0, len(capture.saved))
+		for code := range capture.saved {
 			codes = append(codes, code)
 		}
 
 		// Sort: modifiers first, main key last (fixes bug with Super+Space showing as "57+125")
 		result.KeyCodes = sortScancodes(codes)
-		result.KeyNames = reorderKeyNames(result.KeyCodes, savedCombination)
+		result.KeyNames = reorderKeyNames(result.KeyCodes, capture.saved)
 
 		// Build config value string
 		codeStrings := make([]string, len(result.KeyCodes))
@@ -331,9 +360,9 @@ func formatKeyValue(value string) string {
 	knownValues := map[string]string{
 		"0":      "Double Shift",
 		"58":     "Caps Lock",
-		"29+42":  "Ctrl+Shift",
-		"56+42":  "Alt+Shift",
-		"125+57": "Super+Space",
+		"29+42":  "LCtrl+LShift",
+		"56+42":  "LAlt+LShift",
+		"125+57": "LSuper+Space",
 		"119":    "Pause/Break",
 		"70":     "Scroll Lock",
 	}
@@ -346,21 +375,37 @@ func formatKeyValue(value string) string {
 	return value
 }
 
+// formatCustomKeyLabel rebuilds the label for a persisted custom evdev key
+// value so reopening the settings window shows the same human-readable key.
+func formatCustomKeyLabel(value string) string {
+	parts := strings.Split(value, "+")
+	codes := make([]uint16, 0, len(parts))
+	for _, part := range parts {
+		code, err := strconv.ParseUint(part, 10, 16)
+		if err != nil {
+			return fmt.Sprintf("Custom (%s)", value)
+		}
+		codes = append(codes, uint16(code))
+	}
+
+	return fmt.Sprintf("%s (%s)", detect.ScancodesToKeyNames(codes), value)
+}
+
 // GetKeyNameFromCode returns a human-readable name for a keycode.
 func GetKeyNameFromCode(code uint16) string {
 	knownKeys := map[uint16]string{
-		29:  "Ctrl_L",
-		42:  "Shift_L",
-		54:  "Shift_R",
-		56:  "Alt_L",
+		29:  "LCtrl",
+		42:  "LShift",
+		54:  "RShift",
+		56:  "LAlt",
 		57:  "Space",
 		58:  "Caps_Lock",
 		70:  "Scroll_Lock",
-		97:  "Ctrl_R",
-		100: "Alt_R",
+		97:  "RCtrl",
+		100: "RAlt",
 		119: "Pause",
-		125: "Super_L",
-		126: "Super_R",
+		125: "LSuper",
+		126: "RSuper",
 	}
 
 	if name, ok := knownKeys[code]; ok {

@@ -690,8 +690,8 @@ Switch to Next Keyboard Layout=Alt+Shift,Alt+Shift,Switch to Next Keyboard Layou
 	if !reflect.DeepEqual(attempt.Scancodes, wantScancodes) {
 		t.Fatalf("kdeProvider.Detect() scancodes = %v, want %v", attempt.Scancodes, wantScancodes)
 	}
-	if attempt.KeyNames != "Alt+Shift" {
-		t.Fatalf("kdeProvider.Detect() keyNames = %q, want %q", attempt.KeyNames, "Alt+Shift")
+	if attempt.KeyNames != "LAlt+LShift" {
+		t.Fatalf("kdeProvider.Detect() keyNames = %q, want %q", attempt.KeyNames, "LAlt+LShift")
 	}
 }
 
@@ -1203,8 +1203,8 @@ func TestParseGNOMEAccelerator_SuperSpace(t *testing.T) {
 	if !reflect.DeepEqual(scancodes, wantScancodes) {
 		t.Fatalf("parseGNOMEAccelerator() scancodes = %v, want %v", scancodes, wantScancodes)
 	}
-	if keyNames != "Super+Space" {
-		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "Super+Space")
+	if keyNames != "LSuper+Space" {
+		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "LSuper+Space")
 	}
 }
 
@@ -1218,8 +1218,8 @@ func TestParseGNOMEAccelerator_ShiftAlt(t *testing.T) {
 	if !reflect.DeepEqual(scancodes, wantScancodes) {
 		t.Fatalf("parseGNOMEAccelerator() scancodes = %v, want %v", scancodes, wantScancodes)
 	}
-	if keyNames != "Shift+Alt" {
-		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "Shift+Alt")
+	if keyNames != "LShift+LAlt" {
+		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "LShift+LAlt")
 	}
 }
 
@@ -1233,8 +1233,8 @@ func TestParseGNOMEAccelerator_PrimaryShift(t *testing.T) {
 	if !reflect.DeepEqual(scancodes, wantScancodes) {
 		t.Fatalf("parseGNOMEAccelerator() scancodes = %v, want %v", scancodes, wantScancodes)
 	}
-	if keyNames != "Ctrl+Shift" {
-		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "Ctrl+Shift")
+	if keyNames != "LCtrl+LShift" {
+		t.Fatalf("parseGNOMEAccelerator() keyNames = %q, want %q", keyNames, "LCtrl+LShift")
 	}
 }
 
@@ -1345,13 +1345,13 @@ func TestParseGNOMEAccelerator_AllModifiers(t *testing.T) {
 		wantScancode uint16
 		wantKeyName  string
 	}{
-		{"<Super>", 125, "Super"},
-		{"<Shift>", 42, "Shift"},
-		{"<Control>", 29, "Ctrl"},
-		{"<Ctrl>", 29, "Ctrl"},
-		{"<Alt>", 56, "Alt"},
-		{"<Primary>", 29, "Ctrl"},
-		{"<Meta>", 125, "Super"},
+		{"<Super>", 125, "LSuper"},
+		{"<Shift>", 42, "LShift"},
+		{"<Control>", 29, "LCtrl"},
+		{"<Ctrl>", 29, "LCtrl"},
+		{"<Alt>", 56, "LAlt"},
+		{"<Primary>", 29, "LCtrl"},
+		{"<Meta>", 125, "LSuper"},
 	}
 
 	for _, tt := range tests {

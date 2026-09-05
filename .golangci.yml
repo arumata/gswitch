@@ -223,6 +223,8 @@ linters:
     # ============================================================
     ireturn:
       allow:
+        # Detection factories intentionally return interchangeable providers.
+        - 'github\.com/arumata/gswitch/internal/gswitch/detect\.Provider$'
         - error
         - stdlib
         - anon

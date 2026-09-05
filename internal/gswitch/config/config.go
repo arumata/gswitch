@@ -33,6 +33,7 @@ type LayoutSpec struct {
 // Config holds the application configuration
 type Config struct {
 	Blacklist []string // List of device UIDs to ignore
+	Warnings  []string // Non-fatal compatibility fallbacks applied while loading
 
 	LayoutSwitchKey   []uint16
 	LayoutSwitchAuto  bool   // If true, layout switch keys were auto-detected (for saving as "auto")
@@ -135,6 +136,14 @@ func LoadConfigFrom(path string) (*Config, error) {
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
+	if effective := EffectiveConvertKey(cfg.ConvertKey); effective != cfg.ConvertKey {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(
+			"convert-key %d is a modifier and conflicts with conversion gestures; using Double Shift (0)",
+			cfg.ConvertKey,
+		))
+		cfg.ConvertKey = effective
+	}
+
 	// NOTE: Auto-detection of layout switch keys is NOT performed here.
 	// When LayoutSwitchAuto is true, detection will be performed later:
 	// - For daemon: in NewSwitcher() after session environment is prepared
@@ -162,7 +171,9 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
-	// ConvertKey=0 is valid (double-shift mode), so no validation needed
+	if err := ValidateConvertKey(cfg.ConvertKey); err != nil {
+		return err
+	}
 
 	// Validate delay bounds
 	if cfg.Delay < 0 {
@@ -410,6 +421,10 @@ func SaveConfig(cfg *Config) error {
 // This function is used by SaveConfig and can be used in tests with temporary paths.
 // Uses atomic write (temp file + rename) to prevent partial writes on failure.
 func SaveConfigTo(path string, cfg *Config) error {
+	if err := ValidateConvertKey(cfg.ConvertKey); err != nil {
+		return fmt.Errorf("cannot save config: %w", err)
+	}
+
 	cleanPath := filepath.Clean(path)
 	dir := filepath.Dir(cleanPath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {

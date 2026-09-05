@@ -116,13 +116,13 @@ type DetectionOptions struct {
 // Includes modifiers, special keys, letters A-Z, and numbers 0-9.
 var scancodeToKeyName = map[uint16]string{
 	// Modifiers
-	scancodeLeftCtrl:   "Ctrl",
-	scancodeLeftShift:  "Shift",
+	scancodeLeftCtrl:   "LCtrl",
+	scancodeLeftShift:  "LShift",
 	scancodeRightShift: "RShift",
-	scancodeLeftAlt:    "Alt",
+	scancodeLeftAlt:    "LAlt",
 	scancodeRightAlt:   "RAlt",
 	scancodeRightCtrl:  "RCtrl",
-	scancodeLeftMeta:   "Super",
+	scancodeLeftMeta:   "LSuper",
 	scancodeRightMeta:  "RSuper",
 	// Special keys
 	scancodeSpace:      "Space",
@@ -145,7 +145,7 @@ var scancodeToKeyName = map[uint16]string{
 }
 
 // ScancodesToKeyNames converts scancodes to a human-readable representation.
-// Example: [56, 42] -> "Alt+Shift"
+// Example: [56, 42] -> "LAlt+LShift"
 func ScancodesToKeyNames(scancodes []uint16) string {
 	if len(scancodes) == 0 {
 		return ""
@@ -267,8 +267,6 @@ func getDefaultProviders() []Provider {
 
 // getProviderBySource returns a provider for explicit source selection.
 // Returns nil for unknown sources.
-//
-//nolint:ireturn // Runtime selection requires the common provider interface.
 func getProviderBySource(source DetectionSource) Provider {
 	switch source {
 	case SourceXKB:
@@ -1046,15 +1044,11 @@ func resolveConfigDirFromOSEnv() string {
 }
 
 // NewXKBProvider creates a new XKB provider instance.
-//
-//nolint:ireturn // Public factory exposes provider behavior, not implementation.
 func NewXKBProvider() Provider {
 	return &xkbProvider{}
 }
 
 // NewKDEProvider creates a new KDE provider instance.
-//
-//nolint:ireturn // Public factory exposes provider behavior, not implementation.
 func NewKDEProvider() Provider {
 	return &kdeProvider{}
 }
@@ -1284,8 +1278,6 @@ func parseGNOMEAccelerator(accel string) ([]uint16, string, error) {
 }
 
 // NewGNOMEProvider creates a new GNOME provider instance.
-//
-//nolint:ireturn // Public factory exposes provider behavior, not implementation.
 func NewGNOMEProvider() Provider {
 	return &gnomeProvider{}
 }

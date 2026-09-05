@@ -16,6 +16,9 @@ func Run(daemon bool, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Run 'gswitch -c' to configure.")
 		return 1
 	}
+	for _, warning := range config.Warnings {
+		fmt.Fprintf(stderr, "Warning: %s\n", warning)
+	}
 
 	switcher, err := NewSwitcher(config, !daemon)
 	if err != nil {

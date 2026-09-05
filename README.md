@@ -246,7 +246,7 @@ Config file: `/etc/gswitch/default.conf`
 | Parameter | Description | Default |
 |---|---|---|
 | `layout-switch` | Layout-switch key scancode(s): `auto`, single (`125`), or combo (`29+42`) | `auto` |
-| `convert-key` | One evdev scancode for the correction trigger; `0` = double-Shift mode (combinations are rejected) | `0` |
+| `convert-key` | One non-modifier evdev scancode for the correction trigger; `0` = double-Shift mode (combinations are rejected) | `0` |
 | `delay` | Delay between synthetic key events, ms | `10` |
 | `layout-switch-delay` | Extra delay after the layout switch, ms | `100` |
 | `blacklist` | Comma-separated device UIDs to ignore | — |
@@ -263,6 +263,8 @@ layout-switch-delay=100
 
 Notes:
 
+- Ctrl, Shift, Alt and Super cannot be saved as `convert-key`; they are reserved for conversion gestures. This restriction does not apply to `layout-switch`.
+- If an older configuration uses a modifier as `convert-key`, gswitch uses Double Shift and reports a warning. Settings shows the same fallback; the configuration file changes only when you click Apply.
 - `layout-switch=auto` detects your hotkey from XKB options, GNOME keybindings, or KDE settings; run `gswitch --detect-layout-switch` to see what it finds.
 - On GNOME X11, auto mode keeps your existing layout-switch shortcuts and adds `XF86Launch7` as a persistent internal accelerator. gswitch emits its standard X11 key slot (`KEY_F16`) instead of replaying an unreliable modifier shortcut such as `Super+Space`.
 - The tray converts GTK/XKB hardware keycodes to evdev scancodes when capturing keys. For manual configuration, use `sudo showkey` to look up scancodes.

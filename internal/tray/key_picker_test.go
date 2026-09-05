@@ -10,14 +10,14 @@ func TestIsModifier(t *testing.T) {
 		code     uint16
 		expected bool
 	}{
-		{"Shift_L", 42, true},
-		{"Shift_R", 54, true},
-		{"Ctrl_L", 29, true},
-		{"Ctrl_R", 97, true},
-		{"Alt_L", 56, true},
-		{"Alt_R", 100, true},
-		{"Super_L", 125, true},
-		{"Super_R", 126, true},
+		{"LShift", 42, true},
+		{"RShift", 54, true},
+		{"LCtrl", 29, true},
+		{"RCtrl", 97, true},
+		{"LAlt", 56, true},
+		{"RAlt", 100, true},
+		{"LSuper", 125, true},
+		{"RSuper", 126, true},
 		{"Space", 57, false},
 		{"Caps_Lock", 58, false},
 		{"A", 30, false},
@@ -42,28 +42,28 @@ func TestSortScancodes(t *testing.T) {
 	}{
 		{
 			name:     "Super+Space becomes Super first",
-			input:    []uint16{57, 125}, // Space, Super_L
-			expected: []uint16{125, 57}, // Super_L, Space
+			input:    []uint16{57, 125}, // Space, LSuper
+			expected: []uint16{125, 57}, // LSuper, Space
 		},
 		{
 			name:     "Alt+Shift stays sorted by scancode",
-			input:    []uint16{42, 56}, // Shift_L, Alt_L
+			input:    []uint16{42, 56}, // LShift, LAlt
 			expected: []uint16{42, 56}, // Both are modifiers, sorted numerically
 		},
 		{
 			name:     "Alt+Shift reversed input",
-			input:    []uint16{56, 42}, // Alt_L, Shift_L
+			input:    []uint16{56, 42}, // LAlt, LShift
 			expected: []uint16{42, 56}, // Both are modifiers, sorted numerically
 		},
 		{
 			name:     "Ctrl+Alt+Delete",
-			input:    []uint16{111, 56, 29}, // Delete, Alt_L, Ctrl_L
-			expected: []uint16{29, 56, 111}, // Ctrl_L, Alt_L, Delete
+			input:    []uint16{111, 56, 29}, // Delete, LAlt, LCtrl
+			expected: []uint16{29, 56, 111}, // LCtrl, LAlt, Delete
 		},
 		{
 			name:     "Triple: Shift+Super+Space",
-			input:    []uint16{57, 42, 125}, // Space, Shift_L, Super_L
-			expected: []uint16{42, 125, 57}, // Shift_L, Super_L, Space
+			input:    []uint16{57, 42, 125}, // Space, LShift, LSuper
+			expected: []uint16{42, 125, 57}, // LShift, LSuper, Space
 		},
 		{
 			name:     "Single key passthrough",
@@ -77,7 +77,7 @@ func TestSortScancodes(t *testing.T) {
 		},
 		{
 			name:     "Single modifier passthrough",
-			input:    []uint16{125}, // Super_L
+			input:    []uint16{125}, // LSuper
 			expected: []uint16{125}, // Unchanged
 		},
 	}
@@ -107,16 +107,16 @@ func TestReorderKeyNames(t *testing.T) {
 		expected    []string
 	}{
 		{
-			name:        "Super+Space",
+			name:        "LSuper+Space",
 			sortedCodes: []uint16{125, 57},
-			codeToName:  map[uint16]string{57: "Space", 125: "Super_L"},
-			expected:    []string{"Super_L", "Space"},
+			codeToName:  map[uint16]string{57: "Space", 125: "LSuper"},
+			expected:    []string{"LSuper", "Space"},
 		},
 		{
-			name:        "Ctrl+Shift",
+			name:        "LCtrl+LShift",
 			sortedCodes: []uint16{29, 42},
-			codeToName:  map[uint16]string{29: "Ctrl_L", 42: "Shift_L"},
-			expected:    []string{"Ctrl_L", "Shift_L"},
+			codeToName:  map[uint16]string{29: "LCtrl", 42: "LShift"},
+			expected:    []string{"LCtrl", "LShift"},
 		},
 	}
 
@@ -146,9 +146,9 @@ func TestFormatKeyValue(t *testing.T) {
 	}{
 		{"0", "Double Shift"},
 		{"58", "Caps Lock"},
-		{"29+42", "Ctrl+Shift"},
-		{"56+42", "Alt+Shift"},
-		{"125+57", "Super+Space"},
+		{"29+42", "LCtrl+LShift"},
+		{"56+42", "LAlt+LShift"},
+		{"125+57", "LSuper+Space"},
 		{"119", "Pause/Break"},
 		{"70", "Scroll Lock"},
 		{"123", "123"}, // Unknown value returned as-is
@@ -164,22 +164,44 @@ func TestFormatKeyValue(t *testing.T) {
 	}
 }
 
+func TestFormatCustomKeyLabel(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "left control", value: "29", want: "LCtrl (29)"},
+		{name: "right control", value: "97", want: "RCtrl (97)"},
+		{name: "custom combination", value: "29+30", want: "LCtrl+A (29+30)"},
+		{name: "unknown code", value: "999", want: "Key999 (999)"},
+		{name: "invalid value", value: "not-a-key", want: "Custom (not-a-key)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatCustomKeyLabel(tt.value); got != tt.want {
+				t.Fatalf("formatCustomKeyLabel(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetKeyNameFromCode(t *testing.T) {
 	tests := []struct {
 		code     uint16
 		expected string
 	}{
-		{29, "Ctrl_L"},
-		{42, "Shift_L"},
-		{54, "Shift_R"},
-		{56, "Alt_L"},
+		{29, "LCtrl"},
+		{42, "LShift"},
+		{54, "RShift"},
+		{56, "LAlt"},
 		{57, "Space"},
 		{58, "Caps_Lock"},
-		{97, "Ctrl_R"},
-		{100, "Alt_R"},
+		{97, "RCtrl"},
+		{100, "RAlt"},
 		{119, "Pause"},
-		{125, "Super_L"},
-		{126, "Super_R"},
+		{125, "LSuper"},
+		{126, "RSuper"},
 		{999, "Key_999"}, // Unknown key
 	}
 
@@ -195,22 +217,23 @@ func TestGetKeyNameFromCode(t *testing.T) {
 
 func TestKeySelectionValidForContext(t *testing.T) {
 	tests := []struct {
-		name     string
-		context  KeyPickerContext
-		keyCount int
-		want     bool
+		name    string
+		context KeyPickerContext
+		codes   []uint16
+		want    bool
 	}{
-		{name: "layout single key", context: KeyPickerForLayoutSwitch, keyCount: 1, want: true},
-		{name: "layout combination", context: KeyPickerForLayoutSwitch, keyCount: 2, want: true},
-		{name: "convert single key", context: KeyPickerForConvertKey, keyCount: 1, want: true},
-		{name: "convert combination", context: KeyPickerForConvertKey, keyCount: 2, want: false},
-		{name: "empty selection", context: KeyPickerForConvertKey, keyCount: 0, want: false},
+		{name: "layout single key", context: KeyPickerForLayoutSwitch, codes: []uint16{57}, want: true},
+		{name: "layout combination", context: KeyPickerForLayoutSwitch, codes: []uint16{29, 42}, want: true},
+		{name: "convert single key", context: KeyPickerForConvertKey, codes: []uint16{119}, want: true},
+		{name: "convert combination", context: KeyPickerForConvertKey, codes: []uint16{29, 42}, want: false},
+		{name: "convert modifier", context: KeyPickerForConvertKey, codes: []uint16{29}, want: false},
+		{name: "empty selection", context: KeyPickerForConvertKey, codes: nil, want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := keySelectionValid(tt.context, tt.keyCount); got != tt.want {
-				t.Fatalf("keySelectionValid(%v, %d) = %v, want %v", tt.context, tt.keyCount, got, tt.want)
+			if got := keySelectionValid(tt.context, tt.codes); got != tt.want {
+				t.Fatalf("keySelectionValid(%v, %v) = %v, want %v", tt.context, tt.codes, got, tt.want)
 			}
 		})
 	}
@@ -253,5 +276,85 @@ func TestValidateConfigRejectsConvertKeyCombination(t *testing.T) {
 
 	if err := w.validateConfig(cfg); err == nil {
 		t.Fatal("validateConfig() expected error for conversion key combination, got nil")
+	}
+}
+
+func TestValidateConfigRejectsModifierConvertKey(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{name: "LShift", code: "42"},
+		{name: "RShift", code: "54"},
+		{name: "LCtrl", code: "29"},
+		{name: "RCtrl", code: "97"},
+		{name: "LAlt", code: "56"},
+		{name: "RAlt", code: "100"},
+		{name: "LSuper", code: "125"},
+		{name: "RSuper", code: "126"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &SettingsWindow{}
+			cfg := &TrayConfig{
+				LayoutSwitch:      "auto",
+				ConvertKey:        tt.code,
+				Delay:             10,
+				LayoutSwitchDelay: 100,
+			}
+
+			err := w.validateConfig(cfg)
+			if err == nil {
+				t.Fatalf("validateConfig() expected error for modifier convert-key=%s, got nil", tt.code)
+			}
+		})
+	}
+}
+
+func TestKeyPickerCaptureControlWithXcape(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		hardware uint16
+		want     uint16
+		label    string
+	}{
+		{"left", 37, 29, "LCtrl"},
+		{"right", 105, 97, "RCtrl"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &keyPickerCapture{}
+			c.press(tt.hardware, "USB Keyboard")
+			c.release(tt.hardware, "USB Keyboard")
+			c.press(93, "Virtual core XTEST keyboard")
+			c.release(93, "Virtual core XTEST keyboard")
+			if len(c.saved) != 1 || c.saved[tt.want] != tt.label {
+				t.Fatalf("captured after xcape = %v, want {%d: %s}", c.saved, tt.want, tt.label)
+			}
+		})
+	}
+}
+
+func TestKeyPickerCapturePhysicalGroupKeyAndReselection(t *testing.T) {
+	c := &keyPickerCapture{}
+	// A physical key mapped to an ISO action must remain selectable.
+	c.press(105, "USB Keyboard")
+	c.release(105, "USB Keyboard")
+	if c.saved[97] != "RCtrl" {
+		t.Fatalf("physical group key = %v", c.saved)
+	}
+	c.press(37, "USB Keyboard")
+	// An injected release must not drop the held physical modifier.
+	c.release(37, "Virtual core XTEST keyboard")
+	c.press(38, "USB Keyboard")
+	c.release(38, "USB Keyboard")
+	c.release(37, "USB Keyboard")
+	if len(c.saved) != 2 || c.saved[29] != "LCtrl" || c.saved[30] != "A" {
+		t.Fatalf("replacement chord = %v", c.saved)
+	}
+	// Missing source metadata is accepted (e.g. a backend without a source).
+	c.press(105, "")
+	if len(c.saved) != 1 || c.saved[97] != "RCtrl" {
+		t.Fatalf("replacement key = %v", c.saved)
 	}
 }

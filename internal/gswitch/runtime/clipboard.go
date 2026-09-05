@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"golang.design/x/clipboard"
 )
@@ -190,6 +191,21 @@ func (cb *Clipboard) waylandCommand(name string, args ...string) (*exec.Cmd, err
 // HasPrimarySelection returns true if PRIMARY selection is available
 func (cb *Clipboard) HasPrimarySelection() bool {
 	return cb.useWayland || cb.x11Selection != nil
+}
+
+// WaitForSelectionModifiersReleased confirms that X11 has processed the
+// physical Ctrl/Shift releases before the virtual keyboard emits Ctrl+V.
+// Wayland compositors process the input stream directly and have no portable
+// modifier-state query, so the local input-event barrier is used there.
+func (cb *Clipboard) WaitForSelectionModifiersReleased() error {
+	if cb.useWayland || cb.x11Selection == nil {
+		return nil
+	}
+	return waitForSelectionModifiersReleased(
+		cb.x11Selection,
+		modifierReleasePollAttempts,
+		time.Sleep,
+	)
 }
 
 // Close releases resources

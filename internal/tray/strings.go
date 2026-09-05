@@ -96,9 +96,9 @@ var layoutSwitchOptions = []struct {
 	Value string
 }{
 	{strAutoDetect, "auto"},
-	{"Alt+Shift (56+42)", "56+42"},
-	{"Ctrl+Shift (29+42)", "29+42"},
-	{"Super+Space (125+57)", "125+57"},
+	{"LAlt+LShift (56+42)", "56+42"},
+	{"LCtrl+LShift (29+42)", "29+42"},
+	{"LSuper+Space (125+57)", "125+57"},
 	{"Caps Lock (58)", "58"},
 	{"Other...", "custom"},
 }
@@ -169,6 +169,10 @@ const (
 	strKeyPickerScancode            = "Scancode:"
 	strKeyPickerHint                = "For combinations, hold modifiers (Ctrl, Shift, Alt)"
 	strKeyPickerHintConvert         = "Press one key. Key combinations are not supported for text conversion."
+	strConversionKeyRecovery        = "The saved conversion key %s is no longer supported. Choose a supported key and click Apply to update the configuration."
+	strKeyPickerModifierRejected    = "%s is a modifier key and cannot be used for conversion. Release it and press another key, such as Pause."
+	strKeyPickerCombinationRejected = "Conversion requires a single key without Ctrl, Shift, Alt or Super. Release the combination and press another key, such as Pause."
+
 	strKeyPickerCurrentLayoutSwitch = "Current layout switch key:"
 	strKeyPickerCurrentConvertKey   = "Current conversion key:"
 )
