@@ -133,8 +133,8 @@ class OBS:
             raise ValueError(f"OBS request failed ({status}); inspect state before retrying") from None
 
 
-def directory(obs, target=TEST_TARGET):
-    root = ET.fromstring(obs.request(target.source + "?expand=1"))
+def directory(obs, target=TEST_TARGET, *, expand=True):
+    root = ET.fromstring(obs.request(target.source + f"?expand={int(expand)}"))
     if root.tag != "directory" or not root.get("srcmd5"):
         raise ValueError("OBS returned an invalid source directory")
     return root
@@ -165,12 +165,12 @@ def verify_sources(obs, source, wanted, identity, target=TEST_TARGET):
             "build_verified": False}
 
 
-def update_sources(obs, wanted, identity, target=TEST_TARGET, timeout=1200, sleep=time.sleep, clock=time.monotonic):
-    source = directory(obs, target)
-    old = service_at(obs, source, target)
+def update_sources(obs, wanted, identity, target=TEST_TARGET, timeout=1200, sleep=time.sleep, clock=time.monotonic, on_write=None):
+    source = directory(obs, target, expand=False)
     state = source.find("serviceinfo")
     if state is not None and state.get("code") in {"running", "scheduled"}:
         raise ValueError("OBS services are busy; inspect the active run before retrying")
+    old = service_at(obs, source, target)
     if old != wanted:
         params = ET.fromstring(old).find("service[@name='obs_scm']")
         if params is None or params.findtext("param[@name='url']") != f"https://github.com/{REPOSITORY}.git":
@@ -184,16 +184,20 @@ def update_sources(obs, wanted, identity, target=TEST_TARGET, timeout=1200, slee
                 raise ValueError("Refusing to downgrade the OBS recipe")
         # One file commit starts server services. No redundant runservice POST.
         obs.request(target.source + "/_service", wanted)
+        if on_write is not None:
+            on_write()
     deadline = clock() + timeout
     while clock() < deadline:
-        source = directory(obs, target)
+        # Expanded sources return HTTP 400 while server services are running.
+        source = directory(obs, target, expand=False)
         if service_at(obs, source, target) != wanted:
             raise ValueError("OBS recipe does not match the requested release")
         state = source.find("serviceinfo")
         code = state.get("code") if state is not None else None
         if code in {"failed", "broken"}:
             raise ValueError("OBS source services failed; preserve the server log")
-        verified = verify_sources(obs, source, wanted, identity, target)
+        verified = (verify_sources(obs, directory(obs, target), wanted, identity, target)
+                    if code == 'succeeded' else None)
         if verified:
             verified['source_write_performed'] = old != wanted
             return verified
@@ -206,7 +210,7 @@ def check_access(obs, target):
     if (metadata.tag != 'package' or metadata.get('name') != target.package
             or metadata.get('project') != target.project or (metadata.findtext('scmsync') or '').strip()):
         raise ValueError('Unexpected or SCM-managed OBS package; inspect before writing')
-    source = directory(obs, target)
+    source = directory(obs, target, expand=False)
     service_at(obs, source, target)
     return {'read_access_verified': True, 'write_access_verified': False}
 
@@ -243,7 +247,11 @@ def main():
             save()
             if args.mode in {'verify', 'update'}:
                 if args.mode == 'update':
-                    source = update_sources(obs, wanted, identity, target)
+                    def record_write():
+                        receipt.update(source_write_performed=True, write_access_verified=True,
+                                       state='source_written')
+                        save()
+                    source = update_sources(obs, wanted, identity, target, on_write=record_write)
                     receipt['write_access_verified'] = source['source_write_performed']
                 else:
                     source = verify_sources(obs, directory(obs, target), wanted, identity, target)
