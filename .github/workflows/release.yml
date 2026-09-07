@@ -120,3 +120,44 @@ jobs:
             exit 1
           fi
           cat dist/checksums.txt
+
+  obs-experiment:
+    name: Prepare exact release sources in OBS
+    needs: release
+    if: >-
+      github.repository == 'arumata/gswitch' &&
+      vars.OBS_EXPERIMENT_ENABLED == 'true' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref_name, '-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    concurrency:
+      group: obs-gswitch-automation-test
+      cancel-in-progress: false
+    steps:
+      - name: Checkout released commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Update and verify OBS source preparation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          OBS_USERNAME: ${{ secrets.OBS_EXPERIMENT_USERNAME }}
+          OBS_PASSWORD: ${{ secrets.OBS_EXPERIMENT_PASSWORD }}
+        run: >-
+          python3 scripts/obs_release.py
+          --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT"
+          --output obs-handoff --apply
+
+      - name: Preserve OBS handoff receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: obs-handoff
+          path: obs-handoff/
+          if-no-files-found: warn

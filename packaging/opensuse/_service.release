@@ -1,0 +1,19 @@
+<services>
+  <service name="obs_scm" mode="serveronly">
+    <param name="url">https://github.com/arumata/gswitch.git</param>
+    <param name="scm">git</param>
+    <param name="revision">RELEASE_COMMIT</param>
+    <param name="versionformat">RELEASE_VERSION</param>
+    <param name="filename">gswitch</param>
+    <param name="exclude">.git</param>
+  </service>
+  <service name="set_version" mode="buildtime" />
+  <service name="tar" mode="buildtime" />
+  <service name="recompress" mode="buildtime">
+    <param name="file">gswitch-*.tar</param>
+    <param name="compression">gz</param>
+  </service>
+  <service name="go_modules" mode="serveronly">
+    <param name="archive">*.obscpio</param>
+  </service>
+</services>

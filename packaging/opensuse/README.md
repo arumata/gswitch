@@ -62,7 +62,7 @@ No version or revision edit is needed: the services select the newest matching t
 
 The local OBS services ran through the installed osc dispatcher in a Tumbleweed container. The RPM built without network access; Go tests and desktop file validation passed. Installation and binary dependencies were checked. A modified configuration survived reinstallation of the same version and remained as `.rpmsave` after removal.
 
-The `osc service manualrun` command in an authenticated OBS working copy and the server build have not been verified. Container checks also do not establish that the tray, user service, or text correction work in a Tumbleweed graphical session. Verification of udev ACLs and the polkit dialog remains open. Official Tumbleweed support is not yet claimed.
+The authenticated `osc service manualrun` CLI has not been verified. A separate server recipe has built successfully in `home:arumata/gswitch-automation-test`; its signed RPM passed clean-container installation, reinstallation, configuration preservation, and removal checks. A Tumbleweed user also reported that the tray and correction work with their OBS package. These are separate checks: we have not tested the graphical session, udev ACLs, or polkit dialog ourselves. Official Tumbleweed support is not yet claimed.
 
 After a successful build, check the user service and tray in your graphical session. Test word correction and configuration persistence after logging in again. Run the daemon as the graphical-session user, never as root.
 
@@ -85,3 +85,27 @@ SCM synchronization is a separate workflow: https://openbuildservice.org/help/ma
 Go dependencies: https://github.com/openSUSE/obs-service-go_modules
 
 Home/devel rules: https://en.opensuse.org/openSUSE:Package_security_guidelines#Rpmlint_whitelisting_errors_in_home_and_devel_Projects
+
+## Opt-in release handoff experiment
+
+The manual `_service` above remains the default. `_service.release` is a template for server-side preparation with an immutable release commit and a literal version. Generate an uploadable `_service` with Python 3 and the GitHub CLI:
+
+```sh
+python3 scripts/obs_release.py --tag v0.8.0 \
+  --commit 9058e19e109507b1db0d85217cb6a7fa5dc9b3a1 \
+  --output builds/obs-handoff
+```
+
+This command reads GitHub and writes local files only. It requires the tag to have a published stable release, to be the latest GitHub release, and to resolve to the supplied full commit SHA. Annotated tags are peeled to their commit. If v0.8.0 is no longer latest, supply the current release identity. The generated recipe uses `obs_scm` and `go_modules` in `serveronly` mode, with `set_version`, `tar`, and `recompress` in `buildtime` mode. Source version selection does not depend on a moving branch or the newest reachable tag.
+
+The optional release job runs after the existing release job and its package checks. It is disabled unless the repository variable `OBS_EXPERIMENT_ENABLED` equals `true`. Its only target is `home:arumata/gswitch-automation-test`, with binary publishing disabled. It does not update another maintainer's package. The template, helper, and workflow must be present in the released commit.
+
+Activation needs a separately authorized OBS writer identity in Actions secrets `OBS_EXPERIMENT_USERNAME` and `OBS_EXPERIMENT_PASSWORD`. Use a dedicated identity whose OBS permissions are limited to this test package; the helper's fixed destination is not a server-side credential restriction. Do not store a personal account password merely to reuse its existing permissions. The package-scoped service token cannot write `_service` or pass a source commit to `runservice`.
+
+With explicit authorization and those environment variables, `--apply` updates only `_service` through the OBS source API. Committing that file starts source services automatically. It does not send an additional trigger. Concurrent jobs for this package are serialized without cancellation. The helper refuses busy services, downgrades, and a changed commit for an already recorded release version. Exact successful reruns verify existing sources without another write. Do not edit the test package concurrently from another client; the source file PUT is not a compare-and-swap operation.
+
+The receipt confirms the server's source revision, exact generated source file set, commit, and version only after services succeed. `build_verified` remains false: an accepted update or successful source preparation does not prove the RPM build or installation. Keep the build log and independently verify the RPM, signature, and installed binaries. The spec and changes file are maintained separately; review them when upstream packaging changes.
+
+On timeout, network ambiguity, or source failure, inspect the OBS revision and logs before retrying. The helper never retries writes. If the current recipe is correct but services failed, diagnose and explicitly trigger services in OBS before rerunning the failed job. Use GitHub's **Re-run failed jobs** to retry a failed OBS job without publishing the release again. The receipt and generated recipe are preserved as the `obs-handoff` workflow artifact when available. Missing credentials, older-release reruns, and failed source checks leave the OBS job failed without undoing the published GitHub release.
+
+The authenticated source-API writer and the full GitHub-to-OBS cycle still require a live test before activation. The server recipe and local helper checks do not establish that this entire integration is active.
