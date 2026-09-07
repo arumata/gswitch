@@ -114,6 +114,17 @@ and the tray across all five release-gate layout pairs. These are the tested
 boundaries, not a claim that every desktop, input method, or layout pair has
 been verified.
 
+Additional package verification:
+
+| Distribution | Desktop | Display server | Package |
+|---|---|---|---|
+| openSUSE Tumbleweed 20260904 | KDE Plasma 6.7.4 | Wayland | OBS RPM 0.8.0 (SELinux enforcing) |
+
+The Tumbleweed package passed the same correction and tray checks for all five
+layout pairs. This is an optional check of the published OBS package, not yet
+part of the mandatory matrix for every release. Upgrades between versions
+have not yet been verified.
+
 ## Installation
 
 Requirements: Linux with `uinput`, systemd/logind for packaged device ACLs and
