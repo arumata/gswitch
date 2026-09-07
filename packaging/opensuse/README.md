@@ -2,6 +2,48 @@
 
 This recipe targets x86_64 in an OBS home project. It builds the newest gswitch release tag reachable from the default branch, currently v0.8.0. The package is experimental.
 
+## Install from the author's repository
+
+For Tumbleweed x86_64, use the signed package in `home:arumata`. You do not need
+an OBS account or the source preparation tools below to install it.
+
+```sh
+sudo zypper addrepo --keep-packages --gpgcheck-strict \
+  https://download.opensuse.org/repositories/home:/arumata/openSUSE_Tumbleweed/ obs-gswitch
+sudo zypper refresh obs-gswitch
+sudo zypper install --from obs-gswitch gswitch
+```
+
+On the first refresh, check the repository signing key fingerprint before
+accepting it: `91510B31F8DBD52EA77917D4397732707BD9B6BD`.
+
+Configure two keyboard layouts and a layout-switch shortcut in your desktop
+settings. Log out and back in so logind applies the installed device access
+rules and the tray starts. Enable the daemon from a terminal in that graphical
+session, without sudo:
+
+```sh
+systemctl --user enable --now gswitch.service
+```
+
+Use the tray's Settings to check the detected layouts and shortcut. The daemon
+runs as your user; do not add yourself to the `input` group or run it as root.
+
+To select a newer package from this repository when one is published:
+
+```sh
+sudo zypper refresh obs-gswitch
+sudo zypper install --from obs-gswitch gswitch
+```
+
+If you already use another OBS home project, this explicitly selects
+`home:arumata`. Review any vendor-change prompt; the other project's package
+and automation are maintained separately.
+
+Published version 0.8.0 was verified through this signed repository and in an
+isolated Tumbleweed KDE Wayland session. An upgrade between different versions
+has not yet been tested. See the verification and packaging findings below.
+
 ## Prepare the sources
 
 You need an OBS account and a home project with an openSUSE Tumbleweed build target. Install the source preparation tools:
@@ -62,7 +104,9 @@ No version or revision edit is needed: the services select the newest matching t
 
 The local OBS services ran through the installed osc dispatcher in a Tumbleweed container. The RPM built without network access; Go tests and desktop file validation passed. Installation and binary dependencies were checked. A modified configuration survived reinstallation of the same version and remained as `.rpmsave` after removal.
 
-The authenticated `osc service manualrun` CLI has not been verified. A separate server recipe has built successfully in `home:arumata/gswitch-automation-test`; its signed RPM passed clean-container installation, reinstallation, configuration preservation, and removal checks. A Tumbleweed user also reported that the tray and correction work with their OBS package. These are separate checks: we have not tested the graphical session, udev ACLs, or polkit dialog ourselves. Official Tumbleweed support is not yet claimed.
+The authenticated `osc service manualrun` CLI has not been verified. A separate server recipe has built successfully in `home:arumata/gswitch-automation-test`; its signed RPM passed clean-container installation, reinstallation, configuration preservation, and removal checks. A Tumbleweed user also reported that the tray and correction work with their OBS package.
+
+The exact published OBS 0.8.0 RPM from `home:arumata/gswitch` subsequently passed our optional VM check on Tumbleweed snapshot 20260904, KDE Plasma 6.7.4, Wayland, with SELinux enforcing. It covered user service/device access, tray and Settings activation, and word/phrase correction, undo, selection and case conversion for all five documented layout pairs. Polkit authentication dialogs, Tumbleweed GNOME/X11 and upgrades between versions were not covered. This optional check does not add Tumbleweed to the full release gate or establish official distribution support.
 
 After a successful build, check the user service and tray in your graphical session. Test word correction and configuration persistence after logging in again. Run the daemon as the graphical-session user, never as root.
 

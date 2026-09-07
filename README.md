@@ -137,6 +137,17 @@ systemctl --user enable --now gswitch.service
 
 The package installs the daemon, the tray application, a systemd unit, udev rules, icons, and a polkit policy. The tray starts automatically on next login.
 
+### openSUSE Tumbleweed (x86_64)
+
+The author's [OBS repository](https://download.opensuse.org/repositories/home:/arumata/openSUSE_Tumbleweed/)
+provides a signed Tumbleweed package. See the [installation instructions](packaging/opensuse/README.md#install-from-the-authors-repository)
+for repository setup and updates.
+
+The published OBS 0.8.0 package was tested on Tumbleweed snapshot 20260904,
+KDE Plasma 6.7.4, Wayland, with SELinux enforcing. This is a separate optional
+check; Tumbleweed is not part of the eight-environment release gate above.
+The package is maintained in the author's home project, not openSUSE Factory.
+
 ### With Go
 
 ```bash
