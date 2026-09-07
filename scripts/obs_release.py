@@ -204,7 +204,7 @@ def update_sources(obs, wanted, identity, target=TEST_TARGET, timeout=1200, slee
 def check_access(obs, target):
     metadata = ET.fromstring(obs.request(target.source + '/_meta'))
     if (metadata.tag != 'package' or metadata.get('name') != target.package
-            or metadata.get('project') != target.project or metadata.find('scmsync') is not None):
+            or metadata.get('project') != target.project or (metadata.findtext('scmsync') or '').strip()):
         raise ValueError('Unexpected or SCM-managed OBS package; inspect before writing')
     source = directory(obs, target)
     service_at(obs, source, target)
