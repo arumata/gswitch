@@ -1,0 +1,82 @@
+name: OBS
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      commit:
+        type: string
+        required: true
+      target:
+        type: string
+        required: true
+      mode:
+        type: string
+        required: true
+    secrets:
+      OBS_USERNAME:
+        required: true
+      OBS_PASSWORD:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag
+        type: string
+        required: true
+      target:
+        description: OBS package to inspect or update
+        type: choice
+        options: [test, main]
+        default: test
+        required: true
+      mode:
+        description: Check access, verify existing build, or update and verify
+        type: choice
+        options: [check-access, verify, update]
+        default: check-access
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  obs:
+    if: github.repository == 'arumata/gswitch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    concurrency:
+      group: obs-gswitch-${{ inputs.target }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout workflow implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify release and OBS package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          OBS_TARGET: ${{ inputs.target }}
+          OBS_MODE: ${{ inputs.mode }}
+          OBS_USERNAME: ${{ secrets.OBS_USERNAME }}
+          OBS_PASSWORD: ${{ secrets.OBS_PASSWORD }}
+        shell: bash
+        run: |
+          args=(--tag "$RELEASE_TAG" --target "$OBS_TARGET" --mode "$OBS_MODE" --output obs-handoff)
+          if [[ -n "$RELEASE_COMMIT" ]]; then
+            args+=(--commit "$RELEASE_COMMIT")
+          fi
+          python3 scripts/obs_release.py "${args[@]}"
+
+      - name: Preserve receipt, logs, sources and RPMs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: obs-${{ inputs.target }}-${{ github.run_attempt }}
+          path: obs-handoff/
+          if-no-files-found: warn

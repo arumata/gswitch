@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an exact stable-release OBS recipe; update only the opt-in test package."""
+"""Prepare, update, and verify an exact stable release in the author's OBS project."""
 
 import argparse
 import base64
@@ -11,34 +11,64 @@ import re
 import subprocess
 import sys
 import time
+from typing import NamedTuple
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from obs_verify import verify_build
+
 
 REPOSITORY = "arumata/gswitch"
-PROJECT = "home:arumata"
-PACKAGE = "gswitch-automation-test"
 API = "https://api.opensuse.org"
-SOURCE = f"/source/{PROJECT}/{PACKAGE}"
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class Target(NamedTuple):
+    project: str
+    package: str
+
+    @property
+    def source(self):
+        return f'/source/{self.project}/{self.package}'
+
+    @property
+    def build(self):
+        return f'/build/{self.project}/openSUSE_Tumbleweed/x86_64/{self.package}'
+
+
+TARGETS = {'test': Target('home:arumata', 'gswitch-automation-test'),
+           'main': Target('home:arumata', 'gswitch')}
+TEST_TARGET = TARGETS['test']
+
+
 def gh_api(path):
-    result = subprocess.run(
-        ["gh", "api", f"repos/{REPOSITORY}/{path}"],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode:
-        raise ValueError("GitHub API request failed; no OBS mutation attempted")
-    return json.loads(result.stdout)
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["gh", "api", f"repos/{REPOSITORY}/{path}"],
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            transient = True
+        else:
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+            transient = any(text in result.stderr for text in (
+                'EOF', 'connection reset', 'TLS handshake timeout',
+                'HTTP 502', 'HTTP 503', 'HTTP 504',
+            ))
+        if not transient or attempt == 2:
+            break
+        time.sleep(attempt + 1)
+    raise ValueError(f"GitHub API request failed for {path}; no OBS mutation attempted")
 
 
-def release_identity(tag, commit, api=gh_api):
+def release_identity(tag, commit=None, api=gh_api):
     if not re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag):
         raise ValueError("Only stable vMAJOR.MINOR.PATCH tags are allowed")
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Expected the full release commit SHA")
     release = api(f"releases/tags/{tag}")
     if (release.get("draft") is not False or release.get("prerelease") is not False
@@ -52,8 +82,10 @@ def release_identity(tag, commit, api=gh_api):
         if obj["type"] != "tag":
             break
         obj = api(f"git/tags/{obj['sha']}")["object"]
-    if obj["type"] != "commit" or obj["sha"] != commit:
+    if (obj["type"] != "commit" or not re.fullmatch(r'[a-f0-9]{40}', obj['sha'])
+            or (commit is not None and obj["sha"] != commit)):
         raise ValueError("Published tag does not resolve to the expected release commit")
+    commit = obj['sha']
     return {"repository": REPOSITORY, "tag": tag, "commit": commit,
             "version": tag[1:], "release_id": release["id"],
             "release_url": release["html_url"], "published_at": release["published_at"]}
@@ -73,14 +105,15 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class OBS:
-    def __init__(self):
+    def __init__(self, output=None):
         username = os.environ.get("OBS_USERNAME", "")
         password = os.environ.get("OBS_PASSWORD", "")
-        if not username or not password or ":" in username:
-            raise ValueError("OBS_USERNAME and OBS_PASSWORD are required for source writes")
+        if username != 'arumata' or not password:
+            raise ValueError("OBS_USERNAME must be arumata and OBS_PASSWORD must be set")
         self.authorization = "Basic " + base64.b64encode(
             f"{username}:{password}".encode()).decode()
         self.opener = urllib.request.build_opener(NoRedirect())
+        self.output = output
 
     def request(self, path, data=None):
         request = urllib.request.Request(API + path, data=data, headers={
@@ -88,36 +121,41 @@ class OBS:
         }, method="PUT" if data is not None else "GET")
         try:
             with self.opener.open(request, timeout=60) as response:
-                return response.read()
+                data = response.read(64 * 1024 * 1024 + 1)
+                if len(data) > 64 * 1024 * 1024:
+                    raise ValueError('OBS response exceeds the 64 MiB download limit')
+                if self.output and path.endswith('?expand=1'):
+                    (self.output / 'last-source-directory.xml').write_bytes(data)
+                return data
         except (urllib.error.URLError, TimeoutError) as exc:
             # Never print response bodies, request objects, or credentials.
             status = exc.code if isinstance(exc, urllib.error.HTTPError) else "network error"
             raise ValueError(f"OBS request failed ({status}); inspect state before retrying") from None
 
 
-def directory(obs):
-    root = ET.fromstring(obs.request(SOURCE + "?expand=1"))
+def directory(obs, target=TEST_TARGET):
+    root = ET.fromstring(obs.request(target.source + "?expand=1"))
     if root.tag != "directory" or not root.get("srcmd5"):
         raise ValueError("OBS returned an invalid source directory")
     return root
 
 
-def service_at(obs, source):
-    return obs.request(SOURCE + "/_service?" + urllib.parse.urlencode({"rev": source.get("srcmd5")}))
+def service_at(obs, source, target=TEST_TARGET):
+    return obs.request(target.source + "/_service?" + urllib.parse.urlencode({"rev": source.get("srcmd5")}))
 
 
-def verify_sources(obs, source, wanted, identity):
+def verify_sources(obs, source, wanted, identity, target=TEST_TARGET):
     info = source.find("serviceinfo")
     if info is None or info.get("code") != "succeeded":
         return None
-    if service_at(obs, source) != wanted:
+    if service_at(obs, source, target) != wanted:
         raise ValueError("OBS recipe changed during verification")
     expected = {"_service", "gswitch.spec", "gswitch.changes",
                 "_service:go_modules:vendor.tar.gz", "_service:obs_scm:gswitch.obsinfo",
                 f"_service:obs_scm:gswitch-{identity['version']}.obscpio"}
     if {entry.get("name") for entry in source.findall("entry")} != expected:
         raise ValueError("Unexpected OBS source files; inspect stale or missing outputs")
-    path = SOURCE + "/_service:obs_scm:gswitch.obsinfo?" + urllib.parse.urlencode({"rev": source.get("srcmd5")})
+    path = target.source + "/_service:obs_scm:gswitch.obsinfo?" + urllib.parse.urlencode({"rev": source.get("srcmd5")})
     text = obs.request(path).decode()
     fields = dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
     if fields.get("commit") != identity["commit"] or fields.get("version") != identity["version"]:
@@ -127,9 +165,9 @@ def verify_sources(obs, source, wanted, identity):
             "build_verified": False}
 
 
-def apply(obs, wanted, identity, timeout=1200, sleep=time.sleep, clock=time.monotonic):
-    source = directory(obs)
-    old = service_at(obs, source)
+def update_sources(obs, wanted, identity, target=TEST_TARGET, timeout=1200, sleep=time.sleep, clock=time.monotonic):
+    source = directory(obs, target)
+    old = service_at(obs, source, target)
     state = source.find("serviceinfo")
     if state is not None and state.get("code") in {"running", "scheduled"}:
         raise ValueError("OBS services are busy; inspect the active run before retrying")
@@ -145,49 +183,80 @@ def apply(obs, wanted, identity, timeout=1200, sleep=time.sleep, clock=time.mono
             if tuple(map(int, previous.split('.'))) > tuple(map(int, identity['version'].split('.'))):
                 raise ValueError("Refusing to downgrade the OBS recipe")
         # One file commit starts server services. No redundant runservice POST.
-        # Only this fixed experimental package is writable through this helper.
-        obs.request(SOURCE + "/_service", wanted)
+        obs.request(target.source + "/_service", wanted)
     deadline = clock() + timeout
     while clock() < deadline:
-        source = directory(obs)
-        if service_at(obs, source) != wanted:
+        source = directory(obs, target)
+        if service_at(obs, source, target) != wanted:
             raise ValueError("OBS recipe does not match the requested release")
         state = source.find("serviceinfo")
         code = state.get("code") if state is not None else None
         if code in {"failed", "broken"}:
             raise ValueError("OBS source services failed; preserve the server log")
-        verified = verify_sources(obs, source, wanted, identity)
+        verified = verify_sources(obs, source, wanted, identity, target)
         if verified:
+            verified['source_write_performed'] = old != wanted
             return verified
         sleep(15)
     raise ValueError("OBS source preparation timed out; inspect before retrying")
 
 
+def check_access(obs, target):
+    metadata = ET.fromstring(obs.request(target.source + '/_meta'))
+    if (metadata.tag != 'package' or metadata.get('name') != target.package
+            or metadata.get('project') != target.project or metadata.find('scmsync') is not None):
+        raise ValueError('Unexpected or SCM-managed OBS package; inspect before writing')
+    source = directory(obs, target)
+    service_at(obs, source, target)
+    return {'read_access_verified': True, 'write_access_verified': False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--commit", required=True)
+    parser.add_argument("--commit", help='Expected full release commit; resolved from the tag when omitted')
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--apply", action="store_true", help="Write only the fixed OBS test package")
+    parser.add_argument('--target', choices=TARGETS, required=True)
+    parser.add_argument('--mode', choices=['prepare', 'check-access', 'verify', 'update'], default='prepare')
     args = parser.parse_args()
-    identity = release_identity(args.tag, args.commit)
-    wanted = recipe(identity)
+    if args.output.exists() and any(args.output.iterdir()):
+        parser.error('Use a fresh output directory to preserve previous receipts')
     args.output.mkdir(parents=True, exist_ok=True)
-    (args.output / "_service").write_bytes(wanted)
-    receipt = {**identity, "project": PROJECT, "package": PACKAGE,
-               "service_sha256": hashlib.sha256(wanted).hexdigest(),
-               "state": "prepared", "build_verified": False}
+    target = TARGETS[args.target]
+    receipt = {'target': args.target, 'mode': args.mode, 'project': target.project,
+               'package': target.package, 'state': 'preparing', 'build_verified': False}
     path = args.output / "receipt.json"
-    path.write_text(json.dumps(receipt, indent=2) + "\n")
-    if args.apply:
-        try:
-            receipt.update(apply(OBS(), wanted, identity))
-            receipt["state"] = "sources_verified"
-        except (ValueError, ET.ParseError, KeyError) as exc:
-            receipt.update(state="failed_or_unverified", error=str(exc))
-            raise
-        finally:
-            path.write_text(json.dumps(receipt, indent=2) + "\n")
+
+    def save():
+        path.write_text(json.dumps(receipt, indent=2) + '\n')
+
+    save()
+    try:
+        identity = release_identity(args.tag, args.commit)
+        wanted = recipe(identity)
+        (args.output / '_service').write_bytes(wanted)
+        receipt.update(identity, service_sha256=hashlib.sha256(wanted).hexdigest(), state='prepared')
+        save()
+        if args.mode != 'prepare':
+            obs = OBS(args.output)
+            receipt.update(check_access(obs, target), state='access_checked')
+            save()
+            if args.mode in {'verify', 'update'}:
+                if args.mode == 'update':
+                    source = update_sources(obs, wanted, identity, target)
+                    receipt['write_access_verified'] = source['source_write_performed']
+                else:
+                    source = verify_sources(obs, directory(obs, target), wanted, identity, target)
+                    if source is None:
+                        raise ValueError('Source services have not succeeded')
+                receipt.update(source, state='sources_verified')
+                save()
+                verify_build(obs, target, source, identity, args.output, receipt, save)
+    except (ValueError, ET.ParseError, KeyError, OSError, subprocess.SubprocessError) as error:
+        receipt.update(state='failed_or_unverified', error=str(error) if isinstance(error, ValueError) else type(error).__name__)
+        raise ValueError(receipt['error']) from None
+    finally:
+        save()
     print(json.dumps(receipt, indent=2))
 
 
