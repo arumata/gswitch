@@ -73,10 +73,20 @@ jobs:
           fi
           python3 scripts/obs_release.py "${args[@]}"
 
+      - name: Archive OBS evidence
+        if: always()
+        shell: bash
+        run: |
+          # OBS source filenames contain colons, which upload-artifact rejects.
+          if [[ -d obs-handoff ]]; then
+            tar -cf obs-handoff.tar obs-handoff
+          fi
+
       - name: Preserve receipt, logs, sources and RPMs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: obs-${{ inputs.target }}-${{ github.run_attempt }}
-          path: obs-handoff/
+          path: obs-handoff.tar
+          compression-level: 0
           if-no-files-found: warn
