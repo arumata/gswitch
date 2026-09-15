@@ -392,6 +392,13 @@ Layouts for text conversion are detected from, in order: **fcitx5** (`~/.config/
 - Device ACLs are granted to a user ID, so every unsandboxed process running as
   that user can use the same device permissions while the ACL is active.
 
+## Contributors
+
+[CatSema (Artem Baleevskih)](https://github.com/CatSema) contributed the
+original implementation of configurable tray icon modes in
+[PR #19](https://github.com/arumata/gswitch/pull/19). The release version was
+adapted to the current tray backends before it shipped in v0.6.9.
+
 ## License
 
 [MIT](LICENSE)
