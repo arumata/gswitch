@@ -1,14 +1,14 @@
 module github.com/arumata/gswitch
 
-go 1.25.5
+go 1.26.0
 
 require (
 	fyne.io/systray v1.12.2
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/gotk3/gotk3 v0.6.5-0.20251124190141-e7a9e823ca35
 	github.com/jezek/xgb v1.3.1
 	golang.design/x/clipboard v0.7.1
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
